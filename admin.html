@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURA MOTORS // Enterprise Dealership Admin & Photo-to-3D Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* Standalone Admin Page Specific Adjustments */
+    body {
+      background: #07090e;
+      color: #f1f5f9;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      overflow-x: hidden;
+      font-family: var(--font-sans);
+    }
+    .admin-standalone-wrap {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      width: 100vw;
+    }
+    .btn-return-showroom {
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .color-dot-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .tbl-action-btn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+      transition: all 0.2s ease;
+    }
+    .tbl-action-btn:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+    .tbl-action-btn.delete-btn:hover {
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+    .highlight-car {
+      color: var(--accent-gold);
+      font-weight: 600;
+    }
+    .deposit-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #10b981;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-standalone-wrap">
+    <!-- Admin Top Header Bar -->
+    <header class="admin-topbar">
+      <div class="admin-brand">
+        <span class="brand-crest">✦</span>
+        <div class="admin-brand-info">
+          <h2>AURA MOTORS // DEALER MANAGEMENT SYSTEM</h2>
+          <span class="sub-badge">ENTERPRISE PORTAL • 30 SHOWROOM BAYS</span>
+        </div>
+      </div>
+      <div class="admin-header-actions">
+        <a href="index.html" class="btn-return-showroom" id="btn-return-showroom">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          <span>← Launch 3D Virtual Showroom</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Admin Body Split Layout -->
+    <div class="admin-body">
+      <!-- Left Sidebar Navigation -->
+      <aside class="admin-sidebar">
+        <div class="admin-nav-group">
+          <span class="nav-group-title">DEALERSHIP MANAGEMENT</span>
+          <button class="admin-nav-item active" data-tab="analytics">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+            <span>Overview & Analytics</span>
+          </button>
+          <button class="admin-nav-item" data-tab="photo3d">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+            <span>Photo-to-3D Studio</span>
+          </button>
+          <button class="admin-nav-item" data-tab="fleet">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4.66l.12-.34h13.77l.11.34V17z"/></svg>
+            <span>Fleet & Inventory (26 Cars)</span>
+          </button>
+          <button class="admin-nav-item" data-tab="inquiries">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+            <span>VIP Inquiries & CRM</span>
+          </button>
+          <button class="admin-nav-item" data-tab="floorplan">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            <span>Showroom Floorplan (30 Bays)</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Admin Content Panes -->
+      <main class="admin-content-area">
+        
+        <!-- ==================== TAB 1: OVERVIEW & ANALYTICS ==================== -->
+        <div class="admin-tab-pane active" id="tab-analytics">
+          <div class="pane-header">
+            <h3>Executive Dealership Analytics</h3>
+            <p class="pane-sub">Real-time performance metrics across the 30-bay virtual showroom pavilion.</p>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <span class="kpi-label">TOTAL SHOWROOM FLEET</span>
+              <div class="kpi-val" id="stat-total-cars">26 Vehicles</div>
+              <span class="kpi-sub">Across 4 Showroom Wings</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">TOTAL FLEET VALUATION</span>
+              <div class="kpi-val highlight" id="stat-fleet-value">$42.8M</div>
+              <span class="kpi-sub">Average MSRP: $310,000</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">BAY OCCUPANCY</span>
+              <div class="kpi-val" id="stat-bay-occupancy">26 / 30 (87%)</div>
+              <span class="kpi-sub">4 Open Exhibition Bays</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">VIRTUAL SHOWROOM VIEWS</span>
+              <div class="kpi-val" id="stat-total-views">14,820</div>
+              <span class="kpi-sub">+24% vs Last Month</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">ALLOCATION LEADS IN CRM</span>
+              <div class="kpi-val highlight" id="stat-total-inquiries">3 Active</div>
+              <span class="kpi-sub">$1.85M in Pipeline</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">MOST VIEWED VEHICLE</span>
+              <div class="kpi-val" id="stat-top-car">AURA APEX GT</div>
+              <span class="kpi-sub">4,820 Individual Dwells</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 2: PHOTO-TO-3D RECONSTRUCTION STUDIO ==================== -->
+        <div class="admin-tab-pane" id="tab-photo3d">
+          <div class="pane-header flex-header">
+            <div>
+              <h3>Photo-to-3D Vehicle Reconstruction Studio</h3>
+              <p class="pane-sub">Upload 5 specific camera angles (Front, Rear, Side 1, Side 2, Top) to synthesize an authentic 3D vehicle mesh for the showroom floor.</p>
+            </div>
+            <button id="btn-load-sample-photos" class="btn-secondary-pill">
+              ⚡ Load Sample Multi-Angle Set (1-Click Test)
+            </button>
+          </div>
+
+          <!-- 5-Angle Upload Grid -->
+          <div class="upload-angles-grid">
+            <!-- 1. Front Angle -->
+            <div class="angle-upload-card" id="card-angle-front">
+              <div class="angle-card-header">
+                <span class="angle-num">1</span>
+                <strong>Front View</strong>
+              </div>
+              <div class="dropzone-preview-wrap">
+                <img id="preview-photo-front" class="angle-preview-img hidden" alt="Front Preview">
+                <label for="input-photo-front" class="dropzone-label">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                  <span>Upload Front Photo</span>
+                </label>
+                <input type="file" id="input-photo-front" accept="image/*" class="file-input-hidden">
+              </div>
+            </div>
+
+            <!-- 2. Rear Angle -->
+            <div class="angle-upload-card" id="card-angle-rear">
+              <div class="angle-card-header">
+                <span class="angle-num">2</span>
+                <strong>Rear / Back View</strong>
+              </div>
+              <div class="dropzone-preview-wrap">
+                <img id="preview-photo-rear" class="angle-preview-img hidden" alt="Rear Preview">
+                <label for="input-photo-rear" class="dropzone-label">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                  <span>Upload Rear Photo</span>
+                </label>
+                <input type="file" id="input-photo-rear" accept="image/*" class="file-input-hidden">
+              </div>
+            </div>
+
+            <!-- 3. Side 1 Angle -->
+            <div class="angle-upload-card" id="card-angle-side1">
+              <div class="angle-card-header">
+                <span class="angle-num">3</span>
+                <strong>Side 1 (Left Profile)</strong>
+              </div>
+              <div class="dropzone-preview-wrap">
+                <img id="preview-photo-side1" class="angle-preview-img hidden" alt="Side 1 Preview">
+                <label for="input-photo-side1" class="dropzone-label">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                  <span>Upload Left Side</span>
+                </label>
+                <input type="file" id="input-photo-side1" accept="image/*" class="file-input-hidden">
+              </div>
+            </div>
+
+            <!-- 4. Side 2 Angle -->
+            <div class="angle-upload-card" id="card-angle-side2">
+              <div class="angle-card-header">
+                <span class="angle-num">4</span>
+                <strong>Side 2 (Right Profile)</strong>
+              </div>
+              <div class="dropzone-preview-wrap">
+                <img id="preview-photo-side2" class="angle-preview-img hidden" alt="Side 2 Preview">
+                <label for="input-photo-side2" class="dropzone-label">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                  <span>Upload Right Side</span>
+                </label>
+                <input type="file" id="input-photo-side2" accept="image/*" class="file-input-hidden">
+              </div>
+            </div>
+
+            <!-- 5. Top / Aerial Angle -->
+            <div class="angle-upload-card" id="card-angle-top">
+              <div class="angle-card-header">
+                <span class="angle-num">5</span>
+                <strong>Top / Aerial View</strong>
+              </div>
+              <div class="dropzone-preview-wrap">
+                <img id="preview-photo-top" class="angle-preview-img hidden" alt="Top Preview">
+                <label for="input-photo-top" class="dropzone-label">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                  <span>Upload Top Photo</span>
+                </label>
+                <input type="file" id="input-photo-top" accept="image/*" class="file-input-hidden">
+              </div>
+            </div>
+          </div>
+
+          <!-- Synthesis Action Bar -->
+          <div class="synthesis-action-bar">
+            <button id="btn-synthesize-3d" class="btn-synthesize disabled" disabled>
+              Upload All 5 Angles to Synthesize
+            </button>
+          </div>
+
+          <!-- Photogrammetry Progress Bar -->
+          <div id="synthesis-progress-wrap" class="synthesis-progress-card hidden">
+            <div class="progress-info-row">
+              <span id="synthesis-status-text" class="status-msg">Extracting feature keypoints...</span>
+              <span class="spinner-dot"></span>
+            </div>
+            <div class="progress-track">
+              <div id="synthesis-progress-bar" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- Synthesis Output & 3D Preview Card -->
+          <div id="synthesis-result-card" class="synthesis-result-card hidden">
+            <div class="result-split-layout">
+              <!-- Left: Real-time 3D Viewport in Admin -->
+              <div class="mini-3d-viewport-box">
+                <div class="mini-viewport-header">
+                  <span>3D RECONSTRUCTED DIGITAL TWIN</span>
+                  <span class="badge-success">Mesh Validated (42,500 Triangles)</span>
+                </div>
+                <div id="mini-3d-canvas-container" class="mini-canvas-wrap"></div>
+                <div class="mini-viewport-footer">
+                  <small>Orbit: Drag to Rotate • Scroll to Zoom</small>
+                </div>
+              </div>
+
+              <!-- Right: Metadata & Deployment form -->
+              <div class="deploy-specs-form">
+                <h4>Publish to Showroom Exhibition Bay</h4>
+                <p class="sub-lead">Define technical specifications to deploy this car into the virtual dealership.</p>
+                
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label>Vehicle Name</label>
+                    <input type="text" id="deploy-car-name" value="AURA 720S AERO GT">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Base MSRP ($)</label>
+                    <input type="number" id="deploy-car-price" value="325000">
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label>Output (Horsepower)</label>
+                    <input type="number" id="deploy-car-hp" value="1020">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Top Speed (MPH)</label>
+                    <input type="number" id="deploy-car-top" value="218">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Assign Showroom Bay</label>
+                    <select id="deploy-car-bay">
+                      <option value="2">Bay 02 (Hypercar Rotunda)</option>
+                      <option value="6">Bay 06 (Rotunda Prime)</option>
+                      <option value="14">Bay 14 (GT Boulevard)</option>
+                      <option value="22">Bay 22 (SUV Wing)</option>
+                      <option value="27">Bay 27 (Atelier Pod)</option>
+                      <option value="28">Bay 28 (Atelier Pod)</option>
+                      <option value="29">Bay 29 (Portico)</option>
+                      <option value="30">Bay 30 (Portico)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button id="btn-deploy-to-showroom" class="btn-primary-block">
+                  Deploy to Showroom Floor
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 3: FLEET & INVENTORY (26 CARS) ==================== -->
+        <div class="admin-tab-pane" id="tab-fleet">
+          <div class="pane-header flex-header">
+            <div>
+              <h3>Fleet & Dealership Inventory</h3>
+              <p class="pane-sub">Manage all demo vehicles displayed across the virtual dealership.</p>
+            </div>
+            <button id="btn-open-add-car" class="btn-primary-pill">+ Add Vehicle</button>
+          </div>
+
+          <div class="filter-toolbar">
+            <input type="text" id="fleet-search" placeholder="Search by model, series or finish...">
+            <select id="fleet-filter-category">
+              <option value="all">All Categories</option>
+              <option value="Hypercar">Hypercars</option>
+              <option value="Grand Tourer">Grand Tourers</option>
+              <option value="Luxury SUV">Luxury SUVs</option>
+              <option value="Concept">Concepts & Heritage</option>
+            </select>
+          </div>
+
+          <div class="table-container">
+            <table class="admin-data-table">
+              <thead>
+                <tr>
+                  <th>Bay #</th>
+                  <th>Model & Series</th>
+                  <th>Paint & Finish</th>
+                  <th>Output</th>
+                  <th>Base MSRP</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="fleet-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 4: VIP INQUIRIES & CRM ==================== -->
+        <div class="admin-tab-pane" id="tab-inquiries">
+          <div class="pane-header">
+            <h3>VIP Client Inquiries & Reservations CRM</h3>
+            <p class="pane-sub">Direct allocation requests and test drive bookings submitted by clients through the virtual showroom.</p>
+          </div>
+
+          <div class="table-container">
+            <table class="admin-data-table">
+              <thead>
+                <tr>
+                  <th>Client & Contact</th>
+                  <th>Configured Vehicle</th>
+                  <th>Preferred Date</th>
+                  <th>Deposit</th>
+                  <th>Status</th>
+                  <th>Submitted</th>
+                </tr>
+              </thead>
+              <tbody id="inquiries-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 5: SHOWROOM FLOORPLAN BAYS ==================== -->
+        <div class="admin-tab-pane" id="tab-floorplan">
+          <div class="pane-header">
+            <h3>Showroom Floorplan Allocator (30 Bays)</h3>
+            <p class="pane-sub">Interactive 30-bay grid across the 110m x 55m Dealership Pavilion.</p>
+          </div>
+
+          <div class="floorplan-grid" id="floorplan-bays-grid">
+            <!-- Dynamically populated 30 bay cards -->
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Manual Add Car Modal -->
+  <div id="modal-add-car" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <button class="modal-close" id="modal-add-car-close">&times;</button>
+      <h3 class="modal-title">Register Vehicle to Showroom</h3>
+      <form id="form-add-car" class="modal-form">
+        <div class="form-group">
+          <label>Model Name</label>
+          <input type="text" id="add-car-name" required value="AURA PHANTOM GTS">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Price ($)</label>
+            <input type="number" id="add-car-price" required value="245000">
+          </div>
+          <div class="form-group flex-1">
+            <label>Horsepower</label>
+            <input type="number" id="add-car-hp" required value="860">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Category</label>
+            <select id="add-car-cat">
+              <option value="Hypercar">Hypercar</option>
+              <option value="Grand Tourer">Grand Tourer</option>
+              <option value="Luxury SUV">Luxury SUV</option>
+              <option value="Concept">Concept</option>
+            </select>
+          </div>
+          <div class="form-group flex-1">
+            <label>Color</label>
+            <input type="color" id="add-car-color" value="#00b4d8">
+          </div>
+        </div>
+        <button type="submit" class="btn-primary-block">Add to Showroom Floor</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast-notify hidden">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+    <span id="toast-message">Notification</span>
+  </div>
+
+  <script type="module" src="js/admin-page.js"></script>
+</body>
+</html>
