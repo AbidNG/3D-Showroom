@@ -57,11 +57,20 @@ class App {
     this.currentFinish = 'metallic';
 
     this.initThree();
+    if (!this.renderer) {
+      this.inputValidator = new InputValidator();
+      this.initFormValidation();
+      this.initPublicCatalog();
+      this.prepareWebGLFallback();
+      this.startInventorySync();
+      return;
+    }
     this.initEnvironment();
     this.initPostProcessing();
     this.initModules();
     this.initUI();
     this.initFormValidation();
+    this.initPublicCatalog();
     this.animate();
 
     this.simulateLoader();
@@ -80,11 +89,17 @@ class App {
     );
     this.camera.position.set(4.5, 1.6, 9.8);
 
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
-    });
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: true,
+      });
+    } catch (error) {
+      console.warn('The 3D showroom is unavailable in this browser.', error);
+      this.renderer = null;
+      return;
+    }
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -95,6 +110,21 @@ class App {
     this.container.appendChild(this.renderer.domElement);
 
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  prepareWebGLFallback() {
+    document.body.classList.remove('loading');
+    document.querySelector('.header-center')?.remove();
+    document.querySelector('.mobile-touch-overlay')?.remove();
+    document.getElementById('btn-hero-start-walk')?.remove();
+    document.querySelector('.lighting-dropdown-wrap')?.remove();
+    document.getElementById('btn-audio')?.remove();
+    document.querySelector('.hero-key-hints')?.remove();
+    const title = document.querySelector('.hero-title');
+    const description = document.querySelector('.hero-desc');
+    if (title) title.textContent = 'Browse the AURA collection';
+    if (description) description.textContent = 'The 3D viewer is unavailable in this browser. You can still explore the live vehicle collection and request a showroom visit.';
+    this.showToast('3D viewing is unavailable. Vehicle browsing and visit requests are ready.');
   }
 
   initEnvironment() {
@@ -153,13 +183,22 @@ class App {
     window.motionTracker = this.motionTracker;
     window.vehicles = this.vehicles;
 
-    // Listen to changes made in the separate Admin Portal web tab
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'aura_showroom_inventory') {
-        this.vehicles.refreshAllCars();
-        this.showToast('Showroom inventory updated from Admin Portal.');
-      }
-    });
+    // Inventory is authoritative on the server and shared across browser tabs.
+    window.addEventListener('inventory:changed', () => this.vehicles.refreshAllCars());
+    this.startInventorySync();
+  }
+
+  startInventorySync() {
+    let lastRefreshAt = Date.now();
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastRefreshAt < 15_000) return;
+      lastRefreshAt = Date.now();
+      inventory.refreshFromServer();
+    };
+    window.addEventListener('focus', refreshIfStale);
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.setInterval(refreshIfStale, 60_000);
+    inventory.refreshFromServer();
   }
 
   initUI() {
@@ -171,8 +210,7 @@ class App {
     const activateWalkMode = () => {
       sound.playClick(1400);
       this.motionTracker.setMode(MODES.FREE_WALK);
-      this.motionTracker.requestPointerLock();
-      this.showToast('Walk Mode active. WASD to move, Shift to sprint, Mouse to look.');
+      this.showToast('Walk mode active. Use WASD to move and click-drag to look. Press Esc to pause.');
     };
 
     document.getElementById('btn-start-walk')?.addEventListener('click', activateWalkMode);
@@ -181,22 +219,7 @@ class App {
     // Exit Walk Mode Button
     document.getElementById('btn-exit-walk')?.addEventListener('click', () => {
       sound.playClick(1100);
-      this.motionTracker.exitPointerLock();
-      this.motionTracker.setMode(MODES.PAUSED);
-      document.body.classList.remove('in-walk-mode', 'in-car-focus');
-      document.getElementById('showroom-hero-overlay')?.classList.remove('hidden');
-      document.getElementById('walk-reticle')?.classList.add('hidden');
-      document.getElementById('walk-guide-hud')?.classList.add('hidden');
-      document.getElementById('configurator-dock')?.classList.remove('open');
-      const modeBadge = document.getElementById('current-mode-badge');
-      if (modeBadge) modeBadge.textContent = 'OVERVIEW';
-    });
-
-    // Canvas click re-locks mouse when in walk mode
-    this.container.addEventListener('click', () => {
-      if (this.motionTracker.mode === MODES.FREE_WALK && !this.motionTracker.isPointerLocked) {
-        this.motionTracker.requestPointerLock();
-      }
+      this.motionTracker.setMode(MODES.OVERVIEW);
     });
 
     // Auto-focus bay if navigated from Admin Portal (?focusBay=X)
@@ -434,12 +457,197 @@ class App {
     }
   }
 
+  initPublicCatalog() {
+    const dialog = document.getElementById('vehicle-catalog');
+    const grid = document.getElementById('vehicle-catalog-grid');
+    const search = document.getElementById('catalog-search');
+    const category = document.getElementById('catalog-category');
+    const openCatalog = () => {
+      if (this.motionTracker?.mode === MODES.FREE_WALK && this.motionTracker.isPointerLocked) this.motionTracker.pause();
+      this.renderVehicleCatalog();
+      if (!dialog.open) dialog.showModal();
+      search?.focus();
+    };
+
+    document.getElementById('btn-hero-browse')?.addEventListener('click', openCatalog);
+    document.getElementById('btn-close-catalog')?.addEventListener('click', () => dialog.close());
+    dialog?.addEventListener('click', event => {
+      if (event.target === dialog) dialog.close();
+    });
+    search?.addEventListener('input', () => this.renderVehicleCatalog());
+    category?.addEventListener('change', () => this.renderVehicleCatalog());
+    grid?.addEventListener('click', event => {
+      const button = event.target.closest('button[data-catalog-action]');
+      if (!button) return;
+      const car = inventory.getCarById(button.dataset.carId);
+      if (!car) {
+        this.showToast('That vehicle is no longer in the current collection.');
+        return;
+      }
+      if (button.dataset.catalogAction === 'view') {
+        if (!this.motionTracker?.focusCar) {
+          this.showToast('3D viewing is unavailable in this browser. You can still request a visit.');
+          return;
+        }
+        if (!this.motionTracker.focusCar(car)) {
+          this.showToast('Please wait for the current showroom transition to finish.');
+          return;
+        }
+        this.vehicles.setActiveCar(car.id);
+        dialog.close();
+      } else {
+        dialog.close();
+        window.dispatchEvent(new CustomEvent('showroom:request-visit', { detail: { carId: car.id } }));
+      }
+    });
+    window.addEventListener('inventory:changed', () => {
+      this.syncCatalogCategories();
+      this.renderVehicleCatalog();
+      this.syncBookingVehicleOptions();
+      this.updateCollectionCount();
+    });
+    window.addEventListener('inventory:connection', () => this.updateCollectionCount());
+
+    this.syncCatalogCategories();
+    this.syncBookingVehicleOptions();
+    this.updateCollectionCount();
+    this.renderVehicleCatalog();
+  }
+
+  syncCatalogCategories() {
+    const select = document.getElementById('catalog-category');
+    if (!select) return;
+    const selected = select.value || 'all';
+    const categories = [...new Set(inventory.getCars().map(car => car.category).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    select.replaceChildren(new Option('All categories', 'all'));
+    for (const category of categories) select.add(new Option(category, category));
+    select.value = categories.includes(selected) ? selected : 'all';
+  }
+
+  syncBookingVehicleOptions() {
+    const select = document.getElementById('form-car-select');
+    if (!select) return;
+    const preferredId = select.value;
+    const cars = inventory.getCars();
+    select.replaceChildren();
+    if (!cars.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No vehicles currently available';
+      select.append(option);
+      select.disabled = true;
+      return;
+    }
+    select.disabled = false;
+    for (const car of cars) {
+      const option = document.createElement('option');
+      option.value = car.id;
+      option.textContent = `Bay ${String(car.bay).padStart(2, '0')} · ${car.name} · $${Number(car.price).toLocaleString('en-US')}`;
+      select.append(option);
+    }
+    select.value = cars.some(car => car.id === preferredId) ? preferredId : cars[0].id;
+  }
+
+  updateCollectionCount() {
+    const count = inventory.getCars().length;
+    const label = document.getElementById('hero-collection-count');
+    if (label) {
+      if (inventory.connection === 'checking') label.textContent = 'LOADING LIVE COLLECTION…';
+      else if (inventory.connection === 'offline') label.textContent = 'SAMPLE COLLECTION · SERVICE OFFLINE';
+      else label.textContent = `${count} ${count === 1 ? 'VEHICLE' : 'VEHICLES'} · LIVE COLLECTION`;
+    }
+  }
+
+  renderVehicleCatalog() {
+    const grid = document.getElementById('vehicle-catalog-grid');
+    if (!grid) return;
+    const searchTerm = document.getElementById('catalog-search')?.value.trim().toLocaleLowerCase() || '';
+    const category = document.getElementById('catalog-category')?.value || 'all';
+    const cars = inventory.getCars().filter(car => {
+      const matchesCategory = category === 'all' || car.category === category;
+      const searchable = `${car.name} ${car.series || ''} ${car.category} ${car.status || ''} ${car.year || ''} ${car.powertrain || ''} ${car.colorName || ''}`.toLocaleLowerCase();
+      return matchesCategory && searchable.includes(searchTerm);
+    });
+    const resultCount = document.getElementById('catalog-result-count');
+    if (resultCount) resultCount.textContent = `${cars.length} ${cars.length === 1 ? 'vehicle' : 'vehicles'} shown`;
+    grid.replaceChildren();
+    if (!cars.length) {
+      const empty = document.createElement('p');
+      empty.className = 'catalog-empty';
+      empty.textContent = 'No vehicles match those filters. Try another search or category.';
+      grid.append(empty);
+      return;
+    }
+
+    for (const car of cars) {
+      const card = document.createElement('article');
+      card.className = 'vehicle-card';
+      const visual = document.createElement('div');
+      visual.className = 'vehicle-card-visual';
+      visual.style.setProperty('--vehicle-color', `#${Number(car.colorHex).toString(16).padStart(6, '0')}`);
+      const bay = document.createElement('span');
+      bay.className = 'vehicle-card-bay';
+      bay.textContent = `BAY ${String(car.bay).padStart(2, '0')}`;
+      const status = document.createElement('span');
+      status.className = 'vehicle-card-status';
+      status.textContent = car.status || 'Floor Display';
+      const paint = document.createElement('span');
+      paint.className = 'vehicle-card-paint';
+      paint.setAttribute('aria-label', `${car.colorName || 'Vehicle'} paint color`);
+      visual.append(bay, status, paint);
+
+      const content = document.createElement('div');
+      content.className = 'vehicle-card-content';
+      const type = document.createElement('div');
+      type.className = 'vehicle-card-type';
+      type.textContent = `${car.year} · ${car.category}`;
+      const title = document.createElement('h3');
+      title.textContent = car.name;
+      const series = document.createElement('p');
+      series.className = 'vehicle-card-series';
+      series.textContent = car.series || 'AURA Collection';
+      const specs = document.createElement('div');
+      specs.className = 'vehicle-card-specs';
+      const horsepower = document.createElement('span');
+      horsepower.textContent = `${Number(car.hp).toLocaleString()} HP`;
+      const topSpeed = document.createElement('span');
+      topSpeed.textContent = `${Number(car.topSpeed).toLocaleString()} MPH`;
+      specs.append(horsepower, topSpeed);
+      const details = document.createElement('p');
+      details.className = 'vehicle-card-description';
+      details.textContent = car.description || `${car.status || 'Available'} in the AURA Pavilion.`;
+      const price = document.createElement('strong');
+      price.className = 'vehicle-card-price';
+      price.textContent = `$${Number(car.price).toLocaleString('en-US')}`;
+      const actions = document.createElement('div');
+      actions.className = 'vehicle-card-actions';
+      const view = document.createElement('button');
+      view.type = 'button';
+      view.className = 'catalog-view-button';
+      view.dataset.catalogAction = 'view';
+      view.dataset.carId = car.id;
+      view.textContent = 'View in 3D';
+      const request = document.createElement('button');
+      request.type = 'button';
+      request.className = 'catalog-request-button';
+      request.dataset.catalogAction = 'request';
+      request.dataset.carId = car.id;
+      request.textContent = 'Request a visit';
+      actions.append(view, request);
+      content.append(type, title, series, specs, details, price, actions);
+      card.append(visual, content);
+      grid.append(card);
+    }
+  }
+
   // =========================================================================
   // PRD Section 7.2: Form Entries Validation & Real-Time Feedback
   // =========================================================================
 
   initFormValidation() {
     const modal = document.getElementById('booking-modal');
+    const form = document.getElementById('reservation-form');
     const openBtn = document.getElementById('btn-booking-open');
     const closeBtn = document.getElementById('modal-close');
     const submitBtn = document.getElementById('modal-submit-btn');
@@ -469,14 +677,36 @@ class App {
       inputDate.max = `${maxY}-${maxM}-${maxD}`;
     }
 
-    openBtn?.addEventListener('click', () => {
+    const openBooking = () => {
       sound.playClick(1200);
-      modal?.classList.remove('hidden');
-    });
+      if (this.motionTracker?.mode === MODES.FREE_WALK && this.motionTracker.isPointerLocked) this.motionTracker.pause();
+      if (modal && !modal.open) modal.showModal();
+      inputName?.focus();
+    };
+    openBtn?.addEventListener('click', openBooking);
+    document.getElementById('btn-hero-booking-open')?.addEventListener('click', openBooking);
 
-    closeBtn?.addEventListener('click', () => {
-      modal?.classList.add('hidden');
+    closeBtn?.addEventListener('click', () => modal?.close());
+    modal?.addEventListener('click', event => {
+      if (event.target === modal) modal.close();
     });
+    window.addEventListener('showroom:request-visit', event => {
+      this.syncBookingVehicleOptions();
+      if (event.detail?.carId && inventory.getCarById(event.detail.carId)) selectCar.value = event.detail.carId;
+      if (this.motionTracker?.mode === MODES.FREE_WALK && this.motionTracker.isPointerLocked) this.motionTracker.pause();
+      if (modal && !modal.open) modal.showModal();
+      inputName?.focus();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if (modal?.open) {
+        modal.close();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else if (document.getElementById('vehicle-catalog')?.open) {
+        event.stopImmediatePropagation();
+      }
+    }, true);
 
     const validateFormRealtime = () => {
       const formData = {
@@ -484,7 +714,7 @@ class App {
         phone: inputPhone?.value || '',
         email: inputEmail?.value || '',
         date: inputDate?.value || '',
-        carId: selectCar?.value || 'apex',
+        carId: selectCar?.value || '',
         message: inputMsg?.value || '',
       };
 
@@ -529,28 +759,39 @@ class App {
       el?.addEventListener('blur', validateFormRealtime);
     });
 
-    submitBtn?.addEventListener('click', (e) => {
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const result = validateFormRealtime();
       if (result.isValid) {
         sound.playClick(1800);
-        modal?.classList.add('hidden');
-
-        // Record VIP Inquiry to Dealership Inventory CRM
-        const selectedCarLabel = selectCar?.options[selectCar.selectedIndex]?.text || result.sanitized.carId;
-        inventory.addInquiry({
-          clientName: result.sanitized.name,
-          phone: result.sanitized.phone,
-          email: result.sanitized.email,
-          carName: selectedCarLabel,
-          preferredDate: result.sanitized.date,
-          deposit: '$5,000 USD (Authorized)',
-          status: 'New Allocation Lead',
-          submittedAt: new Date().toISOString().slice(0, 10),
-          message: result.sanitized.message || 'VIP In-Person Private Viewing'
-        });
-
-        this.showToast(`Allocation confirmed for ${result.sanitized.name}! Registered in Dealer CRM.`);
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting request…';
+        let saved = false;
+        try {
+          await inventory.addInquiry({
+            name: result.sanitized.name,
+            phone: result.sanitized.phone,
+            email: result.sanitized.email,
+            date: result.sanitized.date,
+            carId: result.sanitized.carId,
+            message: result.sanitized.message,
+          });
+          modal?.close();
+          saved = true;
+          inputName.value = '';
+          inputPhone.value = '';
+          inputEmail.value = '';
+          inputMsg.value = '';
+          submitBtn.classList.add('disabled');
+          document.querySelectorAll('#reservation-form .invalid').forEach(field => field.classList.remove('invalid'));
+          document.querySelectorAll('#reservation-form .form-error-msg').forEach(message => message.classList.add('hidden'));
+          this.showToast('Your showroom inquiry was received. A team member will follow up.');
+        } catch (error) {
+          this.showToast(error.message || 'We could not save your inquiry. Please try again.');
+        } finally {
+          submitBtn.textContent = 'Send visit request';
+          if (!saved) validateFormRealtime();
+        }
       }
     });
   }

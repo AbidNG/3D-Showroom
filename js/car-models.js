@@ -25,6 +25,7 @@ export class VehicleManager {
     // Active hero car on turntable
     this.heroCarGroup = null;
     this.heroPaintMaterial = null;
+    this.activeCarId = null;
 
     // Showroom Fleet Map (bayNumber -> { group, carData })
     this.fleetMap = new Map();
@@ -303,7 +304,11 @@ export class VehicleManager {
       this.scene.add(carGroup);
     }
 
-    this.fleetMap.set(bayNumber, { group: carGroup, data: carData });
+    this.fleetMap.set(bayNumber, {
+      group: carGroup,
+      data: carData,
+      paintMaterial: bayNumber === 1 ? this.heroPaintMaterial : paintMat,
+    });
   }
 
   removeCarAtBay(bayNumber) {
@@ -328,29 +333,8 @@ export class VehicleManager {
   }
 
   refreshAllCars() {
-    for (const [bay, entry] of this.fleetMap.entries()) {
-      if (bay !== 1) {
-        this.scene.remove(entry.group);
-      }
-    }
-    this.fleetMap.clear();
-
-    const cars = inventory.getCars();
-    cars.forEach(carData => {
-      this.spawnCarAtBay(carData);
-    });
-  }
-
-  refreshAllCars() {
-    for (const [bay, entry] of this.fleetMap.entries()) {
-      if (bay !== 1) {
-        this.scene.remove(entry.group);
-      }
-    }
-    this.fleetMap.clear();
-
-    const cars = inventory.getCars();
-    cars.forEach(carData => {
+    for (const bay of [...this.fleetMap.keys()]) this.removeCarAtBay(bay);
+    inventory.getCars().forEach(carData => {
       this.spawnCarAtBay(carData, carData.bay);
     });
   }
@@ -368,26 +352,32 @@ export class VehicleManager {
 
   // ==================== REAL-TIME CUSTOMIZATION ====================
 
+  setActiveCar(carId) {
+    this.activeCarId = carId;
+  }
+
   setPaint(colorHex, finishType = 'metallic') {
-    if (!this.heroPaintMaterial) return;
-    this.heroPaintMaterial.color.setHex(colorHex);
+    const activeEntry = [...this.fleetMap.values()].find(entry => entry.data.id === this.activeCarId);
+    const paintMaterial = activeEntry?.paintMaterial || this.heroPaintMaterial;
+    if (!paintMaterial) return;
+    paintMaterial.color.setHex(colorHex);
 
     switch (finishType) {
       case 'metallic':
-        this.heroPaintMaterial.metalness = 0.65;
-        this.heroPaintMaterial.roughness = 0.32;
+        paintMaterial.metalness = 0.65;
+        paintMaterial.roughness = 0.32;
         break;
       case 'gloss':
-        this.heroPaintMaterial.metalness = 0.35;
-        this.heroPaintMaterial.roughness = 0.24;
+        paintMaterial.metalness = 0.35;
+        paintMaterial.roughness = 0.24;
         break;
       case 'matte':
-        this.heroPaintMaterial.metalness = 0.15;
-        this.heroPaintMaterial.roughness = 0.65;
+        paintMaterial.metalness = 0.15;
+        paintMaterial.roughness = 0.65;
         break;
       case 'pearlescent':
-        this.heroPaintMaterial.metalness = 0.55;
-        this.heroPaintMaterial.roughness = 0.28;
+        paintMaterial.metalness = 0.55;
+        paintMaterial.roughness = 0.28;
         break;
     }
   }

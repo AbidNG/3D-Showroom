@@ -1,13 +1,17 @@
 {
   "name": "3d-showroom",
   "version": "1.0.0",
-  "description": "",
+  "description": "Interactive 3D vehicle showroom with a protected dealership dashboard",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "three": "^0.186.1"

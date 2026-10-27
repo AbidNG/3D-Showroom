@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AURA MOTORS - 3D Virtual Showroom (30-Bay Grand Pavilion)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
   <div id="walk-guide-hud" class="walk-guide-hud hidden">
     <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span>
     <span><kbd>Shift</kbd> Sprint</span>
-    <span><kbd>Mouse</kbd> 360° Look</span>
+    <span><kbd>Drag</kbd> Look Around</span>
     <span><kbd>E</kbd> Inspect Car</span>
     <span><kbd>Esc</kbd> Pause</span>
   </div>
@@ -37,7 +37,7 @@
         <div id="loader-bar" class="loader-bar"></div>
       </div>
       <div class="loader-status">
-        <span id="loader-text">Loading 110m multi-wing showroom & 26 demo hypercars...</span>
+        <span id="loader-text">Building the 3D pavilion and loading the live vehicle collection…</span>
         <span id="loader-percent">0%</span>
       </div>
     </div>
@@ -46,31 +46,54 @@
   <!-- Showroom Welcome & Walk Activation Hero Card -->
   <div id="showroom-hero-overlay" class="showroom-hero-overlay">
     <div class="hero-card">
-      <div class="hero-badge">AURA PRIVATE ARCHITECTURAL PAVILION</div>
-      <h1 class="hero-title">Experience 26 Exotic Supercars in 3D</h1>
+      <div class="hero-badge" id="hero-collection-count">LIVE VEHICLE COLLECTION</div>
+      <h1 class="hero-title">A new perspective on the AURA collection.</h1>
       <p class="hero-desc">
-        Explore a 110m multi-wing showroom with luxury architectural slate flooring, dynamic lighting, and 30 exhibition bays. Walk freely in first-person to inspect vehicles and test custom finishes.
+        Discover the collection in a purpose-built 3D pavilion. Walk the floor, explore every detail, and find the vehicle that feels like yours.
       </p>
       
       <div class="hero-actions">
-        <button id="btn-hero-start-walk" class="btn-hero-primary">
+        <button id="btn-hero-start-walk" class="btn-hero-primary" type="button">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
-          <span>✦ START EXPLORING SHOWROOM (WALK MODE)</span>
+          <span>Explore the pavilion</span>
         </button>
-        <a href="admin.html" target="_blank" class="btn-hero-secondary">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
-          <span>Dealership Admin Portal ↗</span>
-        </a>
+        <button id="btn-hero-browse" class="btn-hero-secondary" type="button" aria-haspopup="dialog" aria-controls="vehicle-catalog">
+          <span>Browse vehicles</span>
+        </button>
       </div>
 
       <div class="hero-key-hints">
-        <span class="hint-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Walk (1.4 m/s)</span>
-        <span class="hint-item"><kbd>Shift</kbd> Run (2.8 m/s)</span>
-        <span class="hint-item"><kbd>Mouse</kbd> 360° Look</span>
-        <span class="hint-item"><kbd>E</kbd> Inspect Vehicle</span>
+        <span class="hint-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move</span>
+        <span class="hint-item"><kbd>Drag</kbd> to look</span>
+        <span class="hint-item"><kbd>E</kbd> to inspect</span>
       </div>
     </div>
   </div>
+
+
+  <dialog id="vehicle-catalog" class="vehicle-catalog" aria-labelledby="vehicle-catalog-title">
+    <div class="catalog-shell">
+      <header class="catalog-header">
+        <div>
+          <span class="catalog-eyebrow">AURA PAVILION · VEHICLE COLLECTION</span>
+          <h2 id="vehicle-catalog-title">Find your next drive</h2>
+          <p>Explore current vehicles, compare details, and choose how you’d like to continue.</p>
+        </div>
+        <button id="btn-close-catalog" class="catalog-close" type="button" aria-label="Close vehicle collection">&times;</button>
+      </header>
+      <div class="catalog-toolbar">
+        <label class="catalog-search-label" for="catalog-search">Search the collection</label>
+        <div class="catalog-filters">
+          <input id="catalog-search" type="search" placeholder="Search name, series, or category" autocomplete="off">
+          <select id="catalog-category" aria-label="Filter vehicles by category">
+            <option value="all">All categories</option>
+          </select>
+        </div>
+        <p id="catalog-result-count" class="catalog-result-count" aria-live="polite"></p>
+      </div>
+      <div id="vehicle-catalog-grid" class="vehicle-catalog-grid"></div>
+    </div>
+  </dialog>
 
   <!-- =========================================================================
        SHOWROOM CLEAN TOP HUD
@@ -86,10 +109,14 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-name">AURA PAVILION</span>
-          <span class="brand-loc" id="current-mode-badge">OVERVIEW</span>
+          <span class="brand-name">AURA</span>
+          <span class="brand-loc" id="current-mode-badge">VIRTUAL SHOWROOM</span>
         </div>
       </div>
+      <button class="walk-back-button hidden" id="btn-exit-walk" type="button" title="Back to showroom overview" aria-label="Back to showroom overview">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <span>Back</span>
+      </button>
     </div>
 
     <!-- Center Walk Navigation Controls -->
@@ -99,18 +126,13 @@
         <span>Start Walk</span>
       </button>
 
-      <button class="nav-control-btn hidden" id="btn-exit-walk" title="Exit Walk Mode & Unlock Cursor">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        <span>Exit Walk</span>
-      </button>
-
       <button class="nav-control-btn" id="btn-reset-view" title="Return to Showroom Entrance">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
         <span>Entrance Spawn</span>
       </button>
     </nav>
 
-    <!-- Top Right Controls: Lighting, Audio, VIP Booking, Admin Link -->
+    <!-- Public showroom controls -->
     <div class="header-right">
       <!-- Lighting Selector -->
       <div class="lighting-dropdown-wrap">
@@ -162,15 +184,11 @@
       </button>
 
       <!-- VIP Booking Modal Trigger -->
-      <button id="btn-booking-open" class="icon-tool-btn" title="Reserve VIP Allocation">
-        <span>Reserve Slot</span>
+      <button id="btn-booking-open" class="icon-tool-btn" title="Request a showroom visit" aria-label="Request a showroom visit">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M7.5 3.5v3M16.5 3.5v3M3.5 9.5h17M8 13h3M8 16h6"/></svg>
+        <span>Request a visit</span>
       </button>
 
-      <!-- Separate Web Admin Portal Link -->
-      <a href="admin.html" id="btn-nav-admin" class="cta-primary-btn admin-link" target="_blank" title="Open Enterprise Dealership Admin Dashboard in separate page">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-        <span>Admin Portal ↗</span>
-      </a>
     </div>
   </header>
 
@@ -215,11 +233,11 @@
     <div class="pause-card">
       <div class="pause-icon">⏸</div>
       <h2 class="pause-title">EXPLORATION PAUSED</h2>
-      <p class="pause-sub">Movement frozen. Pointer lock released.</p>
+      <p class="pause-sub">Movement paused. Drag the showroom to look around.</p>
       <div class="pause-controls-guide">
         <div class="guide-item"><span>W A S D</span> Walk</div>
         <div class="guide-item"><span>Shift</span> Run (2.8 m/s)</div>
-        <div class="guide-item"><span>Mouse</span> Look Around</div>
+        <div class="guide-item"><span>Drag</span> Look Around</div>
         <div class="guide-item"><span>E</span> Inspect Car</div>
       </div>
       <button id="btn-resume-explore" class="btn-primary-block">Click to Resume Walk</button>
@@ -319,14 +337,14 @@
   </footer>
 
   <!-- Client Booking Modal -->
-  <div id="booking-modal" class="modal-backdrop hidden">
+  <dialog id="booking-modal" class="modal-backdrop" aria-labelledby="booking-title">
     <div class="modal-card">
-      <button class="modal-close" id="modal-close">&times;</button>
+      <button class="modal-close" id="modal-close" type="button" aria-label="Close visit request">&times;</button>
       <div class="modal-icon">✦</div>
-      <h3 class="modal-title">VIP Allocation & Test Drive</h3>
-      <p class="modal-lead">Configure your direct liaison with the Aura Private Concierge.</p>
+      <h3 class="modal-title" id="booking-title">Request a showroom visit</h3>
+      <p class="modal-lead">Share your preferred vehicle and a team member will follow up to arrange a visit.</p>
       
-      <form id="reservation-form" class="modal-form" novalidate onsubmit="return false;">
+      <form id="reservation-form" class="modal-form" novalidate>
         <div class="form-group">
           <label for="form-name">Full Name <span class="req">*</span></label>
           <input type="text" id="form-name" placeholder="Alexander Vance" required autocomplete="name">
@@ -354,10 +372,7 @@
         <div class="form-group">
           <label for="form-car-select">Selected Vehicle <span class="req">*</span></label>
           <select id="form-car-select" required>
-            <option value="apex-gt-01">Bay 01: AURA APEX GT ($284,500)</option>
-            <option value="veloce-egt-07">Bay 07: AURA VELOCE E-GT ($198,000)</option>
-            <option value="stratos-x-15">Bay 15: AURA STRATOS X ($225,000)</option>
-            <option value="vision-speedster-23">Bay 23: AURA VISION SPEEDSTER ($1,200,000)</option>
+            <option value="">Loading vehicles…</option>
           </select>
           <span class="form-error-msg hidden" id="error-car">Please select a car from the list.</span>
         </div>
@@ -369,14 +384,14 @@
         </div>
 
         <button type="submit" id="modal-submit-btn" class="btn-primary-block disabled" disabled>
-          Validate & Confirm Reservation
+          Send visit request
         </button>
       </form>
     </div>
-  </div>
+  </dialog>
 
   <!-- Toast -->
-  <div id="toast" class="toast-notify hidden">
+  <div id="toast" class="toast-notify hidden" role="status" aria-live="polite">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
     <span id="toast-message">Notification</span>
   </div>

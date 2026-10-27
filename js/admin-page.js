@@ -1,535 +1,488 @@
-/**
- * AURA MOTORS - Standalone Admin Portal Controller
- * Powers admin.html as a dedicated web dashboard.
- */
+import { SHOWROOM_BAYS } from './inventory-data.js';
 
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { inventory, SHOWROOM_BAYS } from './inventory-data.js';
+const INQUIRY_STATUSES = ['New', 'Contacted', 'Qualified', 'Closed', 'Spam'];
+const CATEGORIES = ['Hypercar', 'Grand Tourer', 'Luxury SUV', 'Concept'];
+const CAR_STATUSES = ['Floor Display', 'Pre-Order', 'Reserved', 'Service'];
+const PHOTO_KEYS = ['front', 'rear', 'side1', 'side2', 'top'];
+const SAMPLE_PHOTOS = {
+  front: 'assets/images/sample_front.jpg',
+  rear: 'assets/images/sample_rear.jpg',
+  side1: 'assets/images/sample_side1.jpg',
+  side2: 'assets/images/sample_side2.jpg',
+  top: 'assets/images/sample_top.jpg',
+};
 
-class AdminPageApp {
+class AdminDashboard {
   constructor() {
-    this.currentTab = 'analytics';
-    this.uploadedPhotos = {
-      front: null,
-      rear: null,
-      side1: null,
-      side2: null,
-      top: null,
-    };
-    this.generatedModelData = null;
-
-    // Mini 3D Preview Engine in Admin
-    this.miniScene = null;
-    this.miniCamera = null;
-    this.miniRenderer = null;
-    this.miniControls = null;
-    this.miniCarMesh = null;
-    this.animId = null;
-
-    this.initDOM();
+    this.csrfToken = '';
+    this.cars = [];
+    this.inquiries = [];
+    this.photoUrls = new Map();
     this.bindEvents();
-    this.renderAnalytics();
-    this.renderFleetTable();
-    this.renderInquiriesTable();
-    this.renderFloorplanBays();
+    this.bootstrap();
   }
 
-  initDOM() {
-    this.tabButtons = document.querySelectorAll('.admin-nav-item');
-    this.tabPanes = document.querySelectorAll('.admin-tab-pane');
+  async bootstrap() {
+    try {
+      const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('The dashboard service is unavailable.');
+      const session = await response.json();
+      this.csrfToken = session.csrfToken;
+      if (session.authenticated) await this.showDashboard();
+      else this.showLogin();
+    } catch (error) {
+      this.showLogin(error.message || 'Could not connect to the dashboard service.');
+    }
   }
 
   bindEvents() {
-    // Tab switching
-    this.tabButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.tabButtons.forEach(b => b.classList.remove('active'));
-        this.tabPanes.forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        const tab = btn.dataset.tab;
-        this.currentTab = tab;
-        document.getElementById(`tab-${tab}`)?.classList.add('active');
+    if (import.meta.env.DEV) {
+      const showroomLink = document.getElementById('btn-return-showroom');
+      if (showroomLink) showroomLink.href = 'http://localhost:5173/';
+    }
 
-        if (tab === 'photo3d' && !this.miniRenderer) {
-          setTimeout(() => this.initMini3DViewer(), 100);
-        }
+    document.getElementById('admin-login-form')?.addEventListener('submit', event => this.login(event));
+    document.getElementById('admin-logout')?.addEventListener('click', () => this.logout());
+    document.getElementById('btn-export-inquiries')?.addEventListener('click', () => {
+      window.location.assign('/api/admin/inquiries/export.csv');
+    });
+
+    document.querySelectorAll('.admin-nav-item').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.admin-nav-item').forEach(item => item.classList.remove('active'));
+        document.querySelectorAll('.admin-tab-pane').forEach(pane => pane.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById(`tab-${button.dataset.tab}`)?.classList.add('active');
       });
     });
 
-    // 1-Click Demo Photo Set Loader (Front, Rear, Side1, Side2, Top)
-    const loadSampleBtn = document.getElementById('btn-load-sample-photos');
-    loadSampleBtn?.addEventListener('click', () => this.loadSamplePhotoSet());
+    document.getElementById('fleet-search')?.addEventListener('input', () => this.renderFleetTable());
+    document.getElementById('fleet-filter-category')?.addEventListener('change', () => this.renderFleetTable());
+    document.getElementById('btn-open-add-car')?.addEventListener('click', () => this.openVehicleForm());
+    document.getElementById('modal-add-car-close')?.addEventListener('click', () => this.closeVehicleForm());
+    document.getElementById('form-add-car')?.addEventListener('submit', event => this.saveVehicle(event));
+    document.getElementById('fleet-table-body')?.addEventListener('click', event => this.handleFleetAction(event));
+    document.getElementById('inquiries-table-body')?.addEventListener('change', event => this.updateInquiryStatus(event));
+    document.getElementById('inquiries-table-body')?.addEventListener('click', event => this.handleInquiryAction(event));
 
-    // File Input Dropzones
-    const angleKeys = ['front', 'rear', 'side1', 'side2', 'top'];
-    angleKeys.forEach(key => {
-      const input = document.getElementById(`input-photo-${key}`);
-      const preview = document.getElementById(`preview-photo-${key}`);
+    PHOTO_KEYS.forEach(key => {
+      document.getElementById(`input-photo-${key}`)?.addEventListener('change', event => this.previewPhoto(key, event.target.files?.[0]));
+    });
+    document.getElementById('btn-load-sample-photos')?.addEventListener('click', () => this.loadSamplePhotos());
+  }
 
-      input?.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            this.uploadedPhotos[key] = evt.target.result;
-            if (preview) {
-              preview.src = evt.target.result;
-              preview.classList.remove('hidden');
-            }
-            const card = document.getElementById(`card-angle-${key}`);
-            card?.classList.add('has-file');
-            this.checkCanSynthesize();
-          };
-          reader.readAsDataURL(file);
-        }
+  async request(path, { method = 'GET', body } = {}) {
+    const headers = {};
+    const options = { method, credentials: 'same-origin', headers };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      headers['X-CSRF-Token'] = this.csrfToken;
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetch(path, options);
+    const result = response.headers.get('content-type')?.includes('application/json')
+      ? await response.json()
+      : null;
+    if (response.status === 401 && path.startsWith('/api/admin/')) {
+      this.showLogin('Your sign-in expired. Please sign in again.');
+    }
+    if (!response.ok) throw new Error(result?.error || 'The request could not be completed.');
+    return result;
+  }
+
+  async login(event) {
+    event.preventDefault();
+    const passwordInput = document.getElementById('admin-password');
+    const codeInput = document.getElementById('admin-totp-code');
+    const button = document.getElementById('admin-login-submit');
+    const error = document.getElementById('admin-login-error');
+    error.textContent = '';
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+        body: JSON.stringify({ password: passwordInput.value, code: codeInput.value }),
       });
-    });
-
-    // Start 3D Photogrammetry Synthesis Button
-    const synthesizeBtn = document.getElementById('btn-synthesize-3d');
-    synthesizeBtn?.addEventListener('click', () => this.runPhotoTo3DSynthesis());
-
-    // Deploy Converted 3D Car to Showroom Floor
-    const deployBtn = document.getElementById('btn-deploy-to-showroom');
-    deployBtn?.addEventListener('click', () => this.deployConvertedCarToShowroom());
-
-    // Fleet Search & Filter
-    const searchInput = document.getElementById('fleet-search');
-    const filterCat = document.getElementById('fleet-filter-category');
-    searchInput?.addEventListener('input', () => this.renderFleetTable());
-    filterCat?.addEventListener('change', () => this.renderFleetTable());
-
-    // Quick Add New Vehicle Modal
-    document.getElementById('btn-open-add-car')?.addEventListener('click', () => {
-      document.getElementById('modal-add-car')?.classList.remove('hidden');
-    });
-    document.getElementById('modal-add-car-close')?.addEventListener('click', () => {
-      document.getElementById('modal-add-car')?.classList.add('hidden');
-    });
-    document.getElementById('form-add-car')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.handleManualAddCar();
-    });
-  }
-
-  loadSamplePhotoSet() {
-    const samplePaths = {
-      front: 'assets/images/sample_front.jpg',
-      rear: 'assets/images/sample_rear.jpg',
-      side1: 'assets/images/sample_side1.jpg',
-      side2: 'assets/images/sample_side2.jpg',
-      top: 'assets/images/sample_top.jpg',
-    };
-
-    Object.entries(samplePaths).forEach(([key, path]) => {
-      this.uploadedPhotos[key] = path;
-      const preview = document.getElementById(`preview-photo-${key}`);
-      if (preview) {
-        preview.src = path;
-        preview.classList.remove('hidden');
-      }
-      const card = document.getElementById(`card-angle-${key}`);
-      card?.classList.add('has-file');
-    });
-
-    this.checkCanSynthesize();
-    this.showToast('All 5 automotive reference angles loaded! Ready to synthesize.');
-  }
-
-  checkCanSynthesize() {
-    const allUploaded = Object.values(this.uploadedPhotos).every(val => val !== null);
-    const synthBtn = document.getElementById('btn-synthesize-3d');
-    if (!synthBtn) return;
-
-    if (allUploaded) {
-      synthBtn.removeAttribute('disabled');
-      synthBtn.classList.remove('disabled');
-      synthBtn.textContent = '✨ Synthesize 3D Digital Twin from 5 Angles';
-    } else {
-      const remaining = Object.values(this.uploadedPhotos).filter(v => v === null).length;
-      synthBtn.setAttribute('disabled', 'true');
-      synthBtn.classList.add('disabled');
-      synthBtn.textContent = `Upload Remaining ${remaining} Angles to Synthesize`;
+      const result = await response.json().catch(() => ({}));
+      passwordInput.value = '';
+      codeInput.value = '';
+      if (!response.ok) throw new Error(result.error || 'Sign in failed.');
+      this.csrfToken = result.csrfToken;
+      await this.showDashboard();
+    } catch (cause) {
+      error.textContent = cause.message || 'Sign in failed.';
+      passwordInput.focus();
+    } finally {
+      button.disabled = false;
     }
   }
 
-  runPhotoTo3DSynthesis() {
-    const progressCard = document.getElementById('synthesis-progress-wrap');
-    const progressBar = document.getElementById('synthesis-progress-bar');
-    const statusText = document.getElementById('synthesis-status-text');
-    const resultCard = document.getElementById('synthesis-result-card');
-    const synthBtn = document.getElementById('btn-synthesize-3d');
-
-    if (!progressCard || !progressBar || !statusText) return;
-
-    progressCard.classList.remove('hidden');
-    resultCard?.classList.add('hidden');
-    synthBtn?.setAttribute('disabled', 'true');
-
-    const phases = [
-      { p: 18, msg: 'Phase 1/5: Extracting SIFT feature points from 5 angles...' },
-      { p: 42, msg: 'Phase 2/5: Structure-from-Motion multi-view bundle adjustment...' },
-      { p: 68, msg: 'Phase 3/5: Generating high-density point cloud & mesh surface...' },
-      { p: 88, msg: 'Phase 4/5: Projecting PBR clearcoat textures & normal map...' },
-      { p: 100, msg: 'Phase 5/5: 3D Car Digital Twin Synthesis Complete!' },
-    ];
-
-    let currentPhase = 0;
-    const interval = setInterval(() => {
-      if (currentPhase < phases.length) {
-        const item = phases[currentPhase];
-        progressBar.style.width = `${item.p}%`;
-        statusText.textContent = item.msg;
-        currentPhase++;
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-          progressCard.classList.add('hidden');
-          resultCard?.classList.remove('hidden');
-          synthBtn?.removeAttribute('disabled');
-          this.initMini3DViewer();
-          this.showToast('Vehicle reconstructed! Rotate & inspect your 3D digital twin.');
-        }, 400);
-      }
-    }, 700);
-  }
-
-  initMini3DViewer() {
-    const container = document.getElementById('mini-3d-canvas-container');
-    if (!container) return;
-
-    if (this.miniRenderer) {
-      this.miniRenderer.setSize(container.clientWidth, container.clientHeight);
-      return;
+  async logout() {
+    try {
+      await this.request('/api/auth/logout', { method: 'POST', body: {} });
+    } catch (error) {
+      this.showToast(error.message);
     }
-
-    this.miniScene = new THREE.Scene();
-    this.miniScene.background = new THREE.Color(0x080a0f);
-
-    this.miniCamera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 50);
-    this.miniCamera.position.set(4.0, 1.8, 4.2);
-
-    this.miniRenderer = new THREE.WebGLRenderer({ antialias: true });
-    this.miniRenderer.setSize(container.clientWidth, container.clientHeight);
-    this.miniRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.miniRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.miniRenderer.toneMappingExposure = 1.1;
-    container.appendChild(this.miniRenderer.domElement);
-
-    this.miniControls = new OrbitControls(this.miniCamera, this.miniRenderer.domElement);
-    this.miniControls.enableDamping = true;
-    this.miniControls.dampingFactor = 0.05;
-    this.miniControls.maxPolarAngle = Math.PI / 2 - 0.02;
-    this.miniControls.minDistance = 2.0;
-    this.miniControls.maxDistance = 10.0;
-    this.miniControls.target.set(0, 0.6, 0);
-
-    // Studio Lighting for Mini Viewer
-    const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
-    this.miniScene.add(ambLight);
-
-    const keyLight = new THREE.DirectionalLight(0xfffaed, 1.6);
-    keyLight.position.set(5, 8, 5);
-    this.miniScene.add(keyLight);
-
-    const rimLight = new THREE.DirectionalLight(0x00b4d8, 1.2);
-    rimLight.position.set(-5, 4, -5);
-    this.miniScene.add(rimLight);
-
-    // Floor Grid in Mini Viewer
-    const gridHelper = new THREE.GridHelper(10, 20, 0x00b4d8, 0x1f293d);
-    gridHelper.position.y = 0.01;
-    this.miniScene.add(gridHelper);
-
-    // Circular pedestal ring
-    const ringGeo = new THREE.RingGeometry(2.4, 2.45, 64);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00b4d8, side: THREE.DoubleSide });
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    ringMesh.rotation.x = -Math.PI / 2;
-    ringMesh.position.y = 0.02;
-    this.miniScene.add(ringMesh);
-
-    // Build Synthesized Car Model
-    this.buildSynthesizedMesh();
-
-    const animateMini = () => {
-      this.animId = requestAnimationFrame(animateMini);
-      this.miniControls.update();
-      if (this.miniCarMesh) {
-        this.miniCarMesh.rotation.y += 0.003;
-      }
-      this.miniRenderer.render(this.miniScene, this.miniCamera);
-    };
-    animateMini();
+    this.showLogin();
+    this.bootstrap();
   }
 
-  buildSynthesizedMesh() {
-    if (this.miniCarMesh) {
-      this.miniScene.remove(this.miniCarMesh);
+  showLogin(message = '') {
+    const login = document.getElementById('admin-login');
+    const shell = document.getElementById('admin-shell');
+    login.classList.remove('hidden');
+    shell.classList.add('hidden');
+    shell.setAttribute('aria-hidden', 'true');
+    document.getElementById('admin-login-error').textContent = message;
+    document.getElementById('admin-password').focus();
+  }
+
+  async showDashboard() {
+    document.getElementById('admin-login').classList.add('hidden');
+    const shell = document.getElementById('admin-shell');
+    shell.classList.remove('hidden');
+    shell.setAttribute('aria-hidden', 'false');
+    await this.refreshDashboard();
+  }
+
+  async refreshDashboard() {
+    try {
+      const result = await this.request('/api/admin/dashboard');
+      this.cars = result.cars;
+      this.inquiries = result.inquiries;
+      this.renderAnalytics(result.stats);
+      this.renderFleetTable();
+      this.renderInquiriesTable();
+      this.renderFloorplan();
+    } catch (error) {
+      this.showToast(error.message);
     }
-
-    const carGroup = new THREE.Group();
-
-    // Body
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x00b4d8,
-      metalness: 0.65,
-      roughness: 0.32,
-    });
-
-    const bodyGeo = new THREE.BoxGeometry(1.9, 0.6, 4.2);
-    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-    bodyMesh.position.y = 0.55;
-    carGroup.add(bodyMesh);
-
-    // Cabin
-    const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0a0c10,
-      metalness: 0.1,
-      roughness: 0.2,
-      transmission: 0.8,
-      thickness: 0.5,
-      transparent: true,
-      opacity: 0.85,
-      reflectivity: 0.15,
-    });
-    const cabinGeo = new THREE.BoxGeometry(1.6, 0.48, 2.1);
-    const cabinMesh = new THREE.Mesh(cabinGeo, glassMat);
-    cabinMesh.position.set(0, 0.95, -0.2);
-    carGroup.add(cabinMesh);
-
-    // 4 Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 24);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xd8dde4, metalness: 0.9, roughness: 0.2 });
-
-    const wheelPositions = [
-      [-0.95, 0.38, 1.3],
-      [0.95, 0.38, 1.3],
-      [-0.95, 0.38, -1.3],
-      [0.95, 0.38, -1.3],
-    ];
-
-    wheelPositions.forEach(pos => {
-      const w = new THREE.Mesh(wheelGeo, wheelMat);
-      w.rotation.z = Math.PI / 2;
-      w.position.set(...pos);
-
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.29, 16), rimMat);
-      rim.rotation.z = Math.PI / 2;
-      rim.position.set(...pos);
-
-      carGroup.add(w);
-      carGroup.add(rim);
-    });
-
-    // Headlights
-    const lightGeo = new THREE.BoxGeometry(0.35, 0.08, 0.1);
-    const lightMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const hl1 = new THREE.Mesh(lightGeo, lightMat);
-    hl1.position.set(-0.65, 0.62, 2.11);
-    const hl2 = new THREE.Mesh(lightGeo, lightMat);
-    hl2.position.set(0.65, 0.62, 2.11);
-    carGroup.add(hl1);
-    carGroup.add(hl2);
-
-    this.miniCarMesh = carGroup;
-    this.miniScene.add(carGroup);
   }
 
-  deployConvertedCarToShowroom() {
-    const name = document.getElementById('deploy-car-name')?.value || 'AURA 720S AERO GT';
-    const price = parseInt(document.getElementById('deploy-car-price')?.value) || 325000;
-    const hp = parseInt(document.getElementById('deploy-car-hp')?.value) || 1020;
-    const top = parseInt(document.getElementById('deploy-car-top')?.value) || 218;
-    const bayNum = parseInt(document.getElementById('deploy-car-bay')?.value) || 6;
-
-    const newVehicle = {
-      id: `deployed-${Date.now()}`,
-      name: name,
-      bay: bayNum,
-      category: 'Hypercar',
-      colorName: 'Cyan Electric Clearcoat',
-      colorHex: 0x00b4d8,
-      price: price,
-      hp: hp,
-      topSpeed: top,
-      year: 2026,
-      status: 'On Display',
-      views: 120,
-    };
-
-    inventory.addCar(newVehicle);
-    this.renderFleetTable();
-    this.renderAnalytics();
-    this.renderFloorplanBays();
-
-    this.showToast(`Vehicle "${name}" synthesized & deployed to Bay ${String(bayNum).padStart(2, '0')}!`);
-
-    setTimeout(() => {
-      if (confirm(`Vehicle "${name}" successfully deployed to Bay ${bayNum}! Would you like to view it in the 3D Showroom now?`)) {
-        window.location.href = `index.html?focusBay=${bayNum}`;
-      }
-    }, 600);
-  }
-
-  handleManualAddCar() {
-    const name = document.getElementById('add-car-name')?.value || 'AURA GT';
-    const price = parseInt(document.getElementById('add-car-price')?.value) || 240000;
-    const hp = parseInt(document.getElementById('add-car-hp')?.value) || 750;
-    const cat = document.getElementById('add-car-cat')?.value || 'Hypercar';
-    const colorInput = document.getElementById('add-car-color')?.value || '#00b4d8';
-    const colorHex = parseInt(colorInput.replace('#', ''), 16);
-
-    const vacantBay = inventory.getVacantBays()[0] || 27;
-
-    const newCar = {
-      id: `car-manual-${Date.now()}`,
-      name: name,
-      bay: vacantBay,
-      category: cat,
-      colorName: 'Custom Bespoke Paint',
-      colorHex: colorHex,
-      price: price,
-      hp: hp,
-      topSpeed: 205,
-      year: 2026,
-      status: 'On Display',
-      views: 0,
-    };
-
-    inventory.addCar(newCar);
-    document.getElementById('modal-add-car')?.classList.add('hidden');
-    this.renderFleetTable();
-    this.renderAnalytics();
-    this.renderFloorplanBays();
-
-    this.showToast(`Vehicle "${name}" added to Showroom Bay ${vacantBay}!`);
-  }
-
-  renderAnalytics() {
-    const data = inventory.getAnalyticsData();
-    document.getElementById('stat-total-cars').textContent = `${data.totalCars} Vehicles`;
-    document.getElementById('stat-fleet-value').textContent = data.formattedFleetValue;
-    document.getElementById('stat-bay-occupancy').textContent = `${data.occupiedBays} / ${data.totalBays} (${data.occupancyRate})`;
-    document.getElementById('stat-total-views').textContent = data.totalViews.toLocaleString();
-    document.getElementById('stat-total-inquiries').textContent = `${data.totalInquiries} Active`;
-    document.getElementById('stat-top-car').textContent = data.mostPopularCar ? data.mostPopularCar.name : 'AURA APEX GT';
+  renderAnalytics(stats) {
+    document.getElementById('stat-total-cars').textContent = `${stats.totalCars} Vehicles`;
+    document.getElementById('stat-fleet-value').textContent = `$${stats.fleetValue.toLocaleString()}`;
+    document.getElementById('stat-bay-occupancy').textContent = `${stats.occupiedBays} / ${stats.totalBays} (${Math.round(stats.occupiedBays / stats.totalBays * 100)}%)`;
+    document.getElementById('stat-open-inquiries').textContent = String(stats.openInquiries);
+    document.getElementById('stat-new-inquiries').textContent = String(stats.newInquiries);
+    document.getElementById('stat-total-inquiries').textContent = String(stats.totalInquiries);
   }
 
   renderFleetTable() {
     const tbody = document.getElementById('fleet-table-body');
     if (!tbody) return;
-
-    const searchTerm = (document.getElementById('fleet-search')?.value || '').toLowerCase();
-    const catFilter = document.getElementById('fleet-filter-category')?.value || 'all';
-
-    let cars = inventory.getCars();
-
-    if (catFilter !== 'all') {
-      cars = cars.filter(c => c.category === catFilter);
-    }
-    if (searchTerm) {
-      cars = cars.filter(c => c.name.toLowerCase().includes(searchTerm) || c.colorName.toLowerCase().includes(searchTerm));
-    }
-
-    tbody.innerHTML = cars.map(car => `
-      <tr>
-        <td><strong>BAY ${String(car.bay).padStart(2, '0')}</strong></td>
-        <td>
-          <div class="table-car-name" style="font-weight:700;">${car.name}</div>
-          <small style="color:var(--text-dim);">${car.year} • ${car.category}</small>
-        </td>
-        <td>
-          <span class="color-dot-indicator" style="background-color: #${car.colorHex.toString(16).padStart(6, '0')}"></span>
-          ${car.colorName}
-        </td>
-        <td>${car.hp} HP</td>
-        <td><strong>$${car.price.toLocaleString()}</strong></td>
-        <td><span class="status-pill ${car.status.toLowerCase().replace(/\s+/g, '-')}">${car.status}</span></td>
-        <td>
-          <a href="index.html?focusBay=${car.bay}" class="tbl-action-btn view-btn" style="text-decoration:none;" title="View in 3D Showroom">View 3D ↗</a>
-          <button class="tbl-action-btn delete-btn" data-id="${car.id}" title="Remove Vehicle">&times;</button>
-        </td>
-      </tr>
-    `).join('');
-
-    tbody.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.id;
-        if (confirm('Remove this vehicle from showroom floor?')) {
-          inventory.deleteCar(id);
-          this.renderFleetTable();
-          this.renderAnalytics();
-          this.renderFloorplanBays();
-          this.showToast('Vehicle removed from showroom.');
-        }
-      });
+    const term = document.getElementById('fleet-search').value.trim().toLocaleLowerCase();
+    const category = document.getElementById('fleet-filter-category').value;
+    const cars = this.cars.filter(car => {
+      const matchesCategory = category === 'all' || car.category === category;
+      const searchable = `${car.name} ${car.series || ''} ${car.colorName || ''}`.toLocaleLowerCase();
+      return matchesCategory && searchable.includes(term);
     });
+    tbody.replaceChildren();
+    if (!cars.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 7;
+      cell.textContent = 'No vehicles match this filter.';
+      row.append(cell);
+      tbody.append(row);
+      return;
+    }
+
+    for (const car of cars) {
+      const row = document.createElement('tr');
+      this.addCell(row, `BAY ${String(car.bay).padStart(2, '0')}`, true);
+      const nameCell = document.createElement('td');
+      const name = document.createElement('div');
+      name.className = 'table-car-name';
+      name.textContent = car.name;
+      const detail = document.createElement('small');
+      detail.textContent = `${car.year} • ${car.series || car.category}`;
+      nameCell.append(name, detail);
+      row.append(nameCell);
+
+      const paintCell = document.createElement('td');
+      const dot = document.createElement('span');
+      dot.className = 'color-dot-indicator';
+      dot.style.backgroundColor = `#${Number(car.colorHex).toString(16).padStart(6, '0')}`;
+      paintCell.append(dot, document.createTextNode(car.colorName || 'Custom paint'));
+      row.append(paintCell);
+      this.addCell(row, `${car.hp} HP`);
+      this.addCell(row, `$${Number(car.price).toLocaleString()}`, true);
+      this.addCell(row, car.status || 'Floor Display');
+
+      const actions = document.createElement('td');
+      const edit = this.actionButton('Edit', 'edit-car', car.id);
+      const remove = this.actionButton('Remove', 'delete-car', car.id, 'tbl-action-btn delete-btn');
+      actions.append(edit, document.createTextNode(' '), remove);
+      row.append(actions);
+      tbody.append(row);
+    }
+  }
+
+  addCell(row, value, strong = false) {
+    const cell = document.createElement('td');
+    if (strong) {
+      const node = document.createElement('strong');
+      node.textContent = value;
+      cell.append(node);
+    } else cell.textContent = value;
+    row.append(cell);
+  }
+
+  actionButton(label, action, id, className = 'tbl-action-btn') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = label;
+    button.dataset.action = action;
+    button.dataset.id = id;
+    return button;
+  }
+
+  async handleFleetAction(event) {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const car = this.cars.find(item => item.id === button.dataset.id);
+    if (!car) return;
+    if (button.dataset.action === 'edit-car') return this.openVehicleForm(car);
+    if (button.dataset.action === 'delete-car' && window.confirm(`Remove ${car.name} from the showroom?`)) {
+      try {
+        await this.request(`/api/admin/cars/${encodeURIComponent(car.id)}`, { method: 'DELETE', body: {} });
+        await this.refreshDashboard();
+        this.showToast('Vehicle removed.');
+      } catch (error) { this.showToast(error.message); }
+    }
+  }
+
+  openVehicleForm(car = null, suggestedBay = null) {
+    const form = document.getElementById('form-add-car');
+    form.dataset.carId = car?.id || '';
+    document.getElementById('vehicle-modal-title').textContent = car ? 'Edit Vehicle' : 'Register Vehicle';
+    document.getElementById('vehicle-save-button').textContent = car ? 'Save changes' : 'Add vehicle';
+    document.getElementById('vehicle-form-error').classList.add('hidden');
+    document.getElementById('add-car-name').value = car?.name || '';
+    document.getElementById('add-car-series').value = car?.series || '';
+    document.getElementById('add-car-year').value = String(car?.year || new Date().getFullYear());
+    document.getElementById('add-car-price').value = String(car?.price ?? '');
+    document.getElementById('add-car-hp').value = String(car?.hp ?? '');
+    document.getElementById('add-car-top-speed').value = String(car?.topSpeed ?? '');
+    document.getElementById('add-car-cat').value = CATEGORIES.includes(car?.category) ? car.category : 'Hypercar';
+    document.getElementById('add-car-status').value = CAR_STATUSES.includes(car?.status) ? car.status : 'Floor Display';
+    document.getElementById('add-car-color').value = `#${Number(car?.colorHex ?? 0x00b4d8).toString(16).padStart(6, '0')}`;
+
+    const baySelect = document.getElementById('add-car-bay');
+    baySelect.replaceChildren();
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = 'Automatically assign an open bay';
+    baySelect.append(auto);
+    const occupied = new Map(this.cars.map(item => [item.bay, item.id]));
+    for (const slot of SHOWROOM_BAYS) {
+      if (occupied.has(slot.bay) && occupied.get(slot.bay) !== car?.id) continue;
+      const option = document.createElement('option');
+      option.value = String(slot.bay);
+      option.textContent = `Bay ${String(slot.bay).padStart(2, '0')} · ${slot.zone}`;
+      baySelect.append(option);
+    }
+    baySelect.value = String(car?.bay ?? suggestedBay ?? '');
+    document.getElementById('modal-add-car').classList.remove('hidden');
+    document.getElementById('add-car-name').focus();
+  }
+
+  closeVehicleForm() {
+    document.getElementById('modal-add-car').classList.add('hidden');
+  }
+
+  async saveVehicle(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = document.getElementById('vehicle-form-error');
+    const button = document.getElementById('vehicle-save-button');
+    error.textContent = '';
+    error.classList.add('hidden');
+    button.disabled = true;
+    const color = document.getElementById('add-car-color').value;
+    const payload = {
+      name: document.getElementById('add-car-name').value,
+      series: document.getElementById('add-car-series').value,
+      year: Number(document.getElementById('add-car-year').value),
+      bay: document.getElementById('add-car-bay').value ? Number(document.getElementById('add-car-bay').value) : null,
+      price: Number(document.getElementById('add-car-price').value),
+      hp: Number(document.getElementById('add-car-hp').value),
+      topSpeed: Number(document.getElementById('add-car-top-speed').value),
+      category: document.getElementById('add-car-cat').value,
+      colorHex: color,
+      colorName: 'Custom Paint',
+      status: document.getElementById('add-car-status').value,
+      finish: 'metallic',
+    };
+    try {
+      const carId = form.dataset.carId;
+      await this.request(carId ? `/api/admin/cars/${encodeURIComponent(carId)}` : '/api/admin/cars', {
+        method: carId ? 'PATCH' : 'POST',
+        body: payload,
+      });
+      this.closeVehicleForm();
+      await this.refreshDashboard();
+      this.showToast(carId ? 'Vehicle updated.' : 'Vehicle added.');
+    } catch (cause) {
+      error.textContent = cause.message;
+      error.classList.remove('hidden');
+    } finally {
+      button.disabled = false;
+    }
   }
 
   renderInquiriesTable() {
     const tbody = document.getElementById('inquiries-table-body');
-    if (!tbody) return;
-
-    const inqs = inventory.getInquiries();
-    tbody.innerHTML = inqs.map(inq => `
-      <tr>
-        <td>
-          <strong>${inq.clientName || inq.name}</strong><br>
-          <small style="color:var(--text-dim);">${inq.email} • ${inq.phone}</small>
-        </td>
-        <td><span class="highlight-car">${inq.carName}</span></td>
-        <td>${inq.preferredDate || inq.date}</td>
-        <td><span class="deposit-tag">${inq.deposit || '$5,000 USD (Authorized)'}</span></td>
-        <td><span class="status-pill status-${(inq.status || 'Active').toLowerCase().replace(/\s+/g, '-')}">${inq.status || 'Active'}</span></td>
-        <td><small style="color:var(--text-dim);">${inq.submittedAt || inq.timestamp || 'Recent'}</small></td>
-      </tr>
-    `).join('');
-  }
-
-  renderFloorplanBays() {
-    const container = document.getElementById('floorplan-bays-grid');
-    if (!container) return;
-
-    const cars = inventory.getCars();
-    container.innerHTML = SHOWROOM_BAYS.map(bay => {
-      const car = cars.find(c => c.bay === bay.bay);
-      const isOccupied = !!car;
-
-      return `
-        <div class="floorplan-bay-card ${isOccupied ? 'occupied' : 'vacant'}" data-bay="${bay.bay}">
-          <div class="bay-card-header">
-            <span class="bay-id-tag">BAY ${String(bay.bay).padStart(2, '0')}</span>
-            <span class="bay-zone-tag">${bay.zone}</span>
-          </div>
-          ${isOccupied ? `
-            <div class="bay-car-title">${car.name}</div>
-            <div class="bay-car-meta">$${car.price.toLocaleString()} • ${car.hp} HP</div>
-            <a href="index.html?focusBay=${bay.bay}" class="btn-table-action" style="margin-top:6px; text-decoration:none; text-align:center;">Inspect in 3D ↗</a>
-          ` : `
-            <div class="bay-vacant-text">Open Allocation Bay</div>
-            <button class="btn-table-action" style="margin-top:6px;" onclick="document.querySelector('[data-tab=photo3d]').click()">+ Deploy Car</button>
-          `}
-        </div>
-      `;
-    }).join('');
-  }
-
-  showToast(msg) {
-    const toast = document.getElementById('toast');
-    const toastMsg = document.getElementById('toast-message');
-    if (toast && toastMsg) {
-      toastMsg.textContent = msg;
-      toast.classList.remove('hidden');
-      setTimeout(() => {
-        toast.classList.add('hidden');
-      }, 3500);
+    tbody.replaceChildren();
+    if (!this.inquiries.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 7;
+      cell.textContent = 'No inquiries have been submitted yet.';
+      row.append(cell);
+      tbody.append(row);
+      return;
     }
+    for (const inquiry of this.inquiries) {
+      const row = document.createElement('tr');
+      const contact = document.createElement('td');
+      const name = document.createElement('strong');
+      name.textContent = inquiry.name;
+      const details = document.createElement('small');
+      details.textContent = `${inquiry.email} • ${inquiry.phone}`;
+      contact.append(name, document.createElement('br'), details);
+      row.append(contact);
+      this.addCell(row, inquiry.carName);
+      this.addCell(row, inquiry.preferredDate);
+      const message = document.createElement('td');
+      message.className = 'inquiry-message';
+      message.textContent = inquiry.message || 'No message provided';
+      row.append(message);
+
+      const statusCell = document.createElement('td');
+      const select = document.createElement('select');
+      select.dataset.inquiryId = inquiry.id;
+      select.setAttribute('aria-label', `Status for ${inquiry.name}`);
+      for (const status of INQUIRY_STATUSES) {
+        const option = document.createElement('option');
+        option.value = status;
+        option.textContent = status;
+        select.append(option);
+      }
+      select.value = INQUIRY_STATUSES.includes(inquiry.status) ? inquiry.status : 'New';
+      statusCell.append(select);
+      row.append(statusCell);
+      this.addCell(row, new Date(inquiry.createdAt).toLocaleString());
+      const actions = document.createElement('td');
+      actions.append(this.actionButton('Delete', 'delete-inquiry', inquiry.id, 'tbl-action-btn delete-btn'));
+      row.append(actions);
+      tbody.append(row);
+    }
+  }
+
+  async updateInquiryStatus(event) {
+    const select = event.target.closest('select[data-inquiry-id]');
+    if (!select) return;
+    try {
+      await this.request(`/api/admin/inquiries/${encodeURIComponent(select.dataset.inquiryId)}`, {
+        method: 'PATCH', body: { status: select.value },
+      });
+      await this.refreshDashboard();
+      this.showToast('Inquiry status updated.');
+    } catch (error) {
+      this.showToast(error.message);
+      await this.refreshDashboard();
+    }
+  }
+
+  async handleInquiryAction(event) {
+    const button = event.target.closest('button[data-action="delete-inquiry"]');
+    if (!button || !window.confirm('Delete this inquiry permanently?')) return;
+    try {
+      await this.request(`/api/admin/inquiries/${encodeURIComponent(button.dataset.id)}`, { method: 'DELETE', body: {} });
+      await this.refreshDashboard();
+      this.showToast('Inquiry deleted.');
+    } catch (error) { this.showToast(error.message); }
+  }
+
+  renderFloorplan() {
+    const container = document.getElementById('floorplan-bays-grid');
+    container.replaceChildren();
+    for (const bay of SHOWROOM_BAYS) {
+      const card = document.createElement('article');
+      card.className = `floorplan-bay-card ${this.cars.some(car => car.bay === bay.bay) ? 'occupied' : 'vacant'}`;
+      const heading = document.createElement('div');
+      heading.className = 'bay-card-header';
+      const id = document.createElement('span');
+      id.className = 'bay-id-tag';
+      id.textContent = `BAY ${String(bay.bay).padStart(2, '0')}`;
+      const zone = document.createElement('span');
+      zone.className = 'bay-zone-tag';
+      zone.textContent = bay.zone;
+      heading.append(id, zone);
+      card.append(heading);
+      const car = this.cars.find(item => item.bay === bay.bay);
+      const title = document.createElement('div');
+      title.className = car ? 'bay-car-title' : 'bay-vacant-text';
+      title.textContent = car?.name || 'Open allocation bay';
+      card.append(title);
+      if (car) {
+        const meta = document.createElement('div');
+        meta.className = 'bay-car-meta';
+        meta.textContent = `$${Number(car.price).toLocaleString()} • ${car.hp} HP`;
+        card.append(meta);
+      }
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'btn-table-action';
+      action.textContent = car ? 'Edit vehicle' : 'Add vehicle';
+      action.addEventListener('click', () => this.openVehicleForm(car || null, bay.bay));
+      card.append(action);
+      container.append(card);
+    }
+  }
+
+  previewPhoto(key, file) {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+      this.showToast('Choose a JPEG, PNG, or WebP image under 8 MB.');
+      return;
+    }
+    const oldUrl = this.photoUrls.get(key);
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    const objectUrl = URL.createObjectURL(file);
+    this.photoUrls.set(key, objectUrl);
+    const image = document.getElementById(`preview-photo-${key}`);
+    image.src = objectUrl;
+    image.classList.remove('hidden');
+    document.getElementById(`card-angle-${key}`).classList.add('has-file');
+  }
+
+  loadSamplePhotos() {
+    for (const key of PHOTO_KEYS) {
+      const image = document.getElementById(`preview-photo-${key}`);
+      const oldUrl = this.photoUrls.get(key);
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      this.photoUrls.delete(key);
+      image.src = SAMPLE_PHOTOS[key];
+      image.classList.remove('hidden');
+      document.getElementById(`card-angle-${key}`).classList.add('has-file');
+    }
+    this.showToast('Sample images loaded for this tab only.');
+  }
+
+  showToast(message) {
+    const toast = document.getElementById('toast');
+    const target = document.getElementById('toast-message');
+    target.textContent = message;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3500);
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  new AdminPageApp();
-});
+window.addEventListener('DOMContentLoaded', () => new AdminDashboard());

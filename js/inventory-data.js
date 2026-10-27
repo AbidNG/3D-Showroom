@@ -45,7 +45,7 @@ export const SHOWROOM_BAYS = [
   { bay: 30, zone: 'Executive Portico', x: -44.0, z: 4.0, rotY: 0.0, featured: false, name: 'Open Bay 30' },
 ];
 
-const INITIAL_CARS = [
+export const INITIAL_CARS = [
   // 1-6 Hypercar Rotunda
   {
     id: 'apex-gt-01',
@@ -575,210 +575,76 @@ const INITIAL_CARS = [
   }
 ];
 
-class InventoryManager {
+export class InventoryManager {
   constructor() {
-    this.storageKey = 'AURA_SHOWROOM_FLEET_v1';
-    this.inquiriesKey = 'AURA_CLIENT_INQUIRIES_v1';
-    this.cars = this.loadCars();
-    this.inquiries = this.loadInquiries();
+    this.cars = [...INITIAL_CARS];
+    this.ready = Promise.resolve(this.cars);
+    this.connection = 'checking';
   }
 
-  loadCars() {
+  async refreshFromServer() {
     try {
-      const saved = localStorage.getItem(this.storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 20) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Using default car fleet:', e);
-    }
-    return [...INITIAL_CARS];
-  }
-
-  saveCars() {
-    try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.cars));
-    } catch (e) {
-      console.error('Failed to save fleet:', e);
+      const response = await fetch('/api/inventory', { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Inventory service is unavailable.');
+      const data = await response.json();
+      if (!Array.isArray(data.cars)) throw new Error('Inventory response is invalid.');
+      const changed = JSON.stringify(data.cars) !== JSON.stringify(this.cars);
+      const connectionChanged = this.connection !== 'online';
+      this.cars = data.cars;
+      this.connection = 'online';
+      if (changed) window.dispatchEvent(new Event('inventory:changed'));
+      if (connectionChanged) window.dispatchEvent(new CustomEvent('inventory:connection', { detail: { online: true } }));
+      return this.cars;
+    } catch (error) {
+      const connectionChanged = this.connection !== 'offline';
+      this.connection = 'offline';
+      if (connectionChanged) window.dispatchEvent(new CustomEvent('inventory:connection', { detail: { online: false } }));
+      console.warn('Using showroom sample fleet until the inventory service is available.', error);
+      return this.cars;
     }
   }
 
-  getCars() {
-    return this.cars;
-  }
-
-  getCarById(id) {
-    return this.cars.find(c => c.id === id);
-  }
-
-  getCarByBay(bayNumber) {
-    return this.cars.find(c => c.bay === bayNumber);
-  }
-
+  getCars() { return [...this.cars]; }
+  getCarById(id) { return this.cars.find(car => car.id === id); }
+  getCarByBay(bayNumber) { return this.cars.find(car => car.bay === bayNumber); }
   getNextOpenBay() {
-    const occupied = new Set(this.cars.map(c => c.bay));
-    for (let b = 1; b <= 30; b++) {
-      if (!occupied.has(b)) return b;
-    }
-    return 30; // Fallback to last bay
+    const occupied = new Set(this.cars.map(car => car.bay));
+    return SHOWROOM_BAYS.find(bay => !occupied.has(bay.bay))?.bay ?? null;
   }
 
-  /**
-   * Adds a newly generated or registered vehicle to the showroom fleet
-   */
-  addCar(carData) {
-    const bay = carData.bay || this.getNextOpenBay();
-    const newCar = {
-      id: carData.id || `custom-${Date.now()}`,
-      name: (carData.name || 'AURA CUSTOM BESPOKE').toUpperCase(),
-      series: carData.series || 'Bespoke Atelier',
-      year: parseInt(carData.year) || 2026,
-      category: carData.category || 'Hypercar',
-      price: parseInt(carData.price) || 295000,
-      hp: parseInt(carData.hp) || 980,
-      topSpeed: parseInt(carData.topSpeed) || 215,
-      zeroToSixty: parseFloat(carData.zeroToSixty) || 2.3,
-      powertrain: carData.powertrain || '4.0L Twin-Turbo Hybrid V8',
-      colorName: carData.colorName || 'Liquid Quicksilver',
-      colorHex: typeof carData.colorHex === 'number' ? carData.colorHex : 0xd8dde4,
-      finish: carData.finish || 'metallic',
-      bay: bay,
-      status: 'Floor Display',
-      inStock: 1,
-      views: 120,
-      description: carData.description || 'Synthesized from multi-angle photography into 3D showroom digital twin.',
-      isAiGenerated: true,
-      photos: carData.photos || null,
-    };
-
-    // Remove any previous car occupying this bay
-    this.cars = this.cars.filter(c => c.bay !== bay);
-    this.cars.push(newCar);
-    this.saveCars();
-    return newCar;
+  async addInquiry(inquiry) {
+    const sessionResponse = await fetch('/api/auth/session', { credentials: 'same-origin' });
+    if (!sessionResponse.ok) throw new Error('Could not start a secure reservation session.');
+    const { csrfToken } = await sessionResponse.json();
+    const response = await fetch('/api/inquiries', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+      body: JSON.stringify(inquiry),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not save this reservation request.');
+    return result.inquiry;
   }
-
-  updateCar(id, updates) {
-    const idx = this.cars.findIndex(c => c.id === id);
-    if (idx !== -1) {
-      this.cars[idx] = { ...this.cars[idx], ...updates };
-      this.saveCars();
-      return this.cars[idx];
-    }
-    return null;
-  }
-
-  deleteCar(id) {
-    this.cars = this.cars.filter(c => c.id !== id);
-    this.saveCars();
-  }
-
-  // =========================================================================
-  // VIP Client Inquiries CRM
-  // =========================================================================
-
-  loadInquiries() {
-    try {
-      const saved = localStorage.getItem(this.inquiriesKey);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-
-    // Demo inquiries
-    return [
-      {
-        id: 'inq-101',
-        name: 'Lord Alistair Sterling',
-        phone: '9845012345',
-        email: 'sterling@mayfairprivate.co.uk',
-        date: '2026-11-14',
-        carId: 'apex-gt-01',
-        carName: 'AURA APEX GT',
-        message: 'Requesting carbon track pack with liquid silver exterior.',
-        status: 'Deposit Received',
-        deposit: '$5,000',
-        timestamp: '2 hours ago'
-      },
-      {
-        id: 'inq-102',
-        name: 'Dr. Elena Rostova',
-        phone: '9988776655',
-        email: 'elena.rostova@zurichbiotech.ch',
-        date: '2026-11-20',
-        carId: 'veloce-egt-07',
-        carName: 'AURA VELOCE E-GT',
-        message: 'Interested in bespoke sapphire blue executive delivery at Geneva.',
-        status: 'Concierge Review',
-        deposit: 'Pending',
-        timestamp: '5 hours ago'
-      },
-      {
-        id: 'inq-103',
-        name: 'Vikramaditya Singhania',
-        phone: '9820011223',
-        email: 'vikram@singhaniagroup.com',
-        date: '2026-11-08',
-        carId: 'stratos-x-15',
-        carName: 'AURA STRATOS X',
-        message: 'Schedule private track day session at BIC Buddh Circuit.',
-        status: 'Allocated',
-        deposit: '$10,000',
-        timestamp: '1 day ago'
-      }
-    ];
-  }
-
-  addInquiry(inq) {
-    const car = this.getCarById(inq.carId) || { name: 'AURA APEX GT' };
-    const newInq = {
-      id: `inq-${Date.now()}`,
-      name: inq.name,
-      phone: inq.phone,
-      email: inq.email,
-      date: inq.date,
-      carId: inq.carId,
-      carName: car.name,
-      message: inq.message || 'General VIP showroom inquiry.',
-      status: 'Deposit Received',
-      deposit: '$5,000',
-      timestamp: 'Just now'
-    };
-    this.inquiries.unshift(newInq);
-    try {
-      localStorage.setItem(this.inquiriesKey, JSON.stringify(this.inquiries));
-    } catch (e) {}
-    return newInq;
-  }
-
-  getInquiries() {
-    return this.inquiries;
-  }
-
-  // =========================================================================
-  // Executive Business Analytics
-  // =========================================================================
 
   getAnalytics() {
     const totalCars = this.cars.length;
-    const totalValuation = this.cars.reduce((sum, c) => sum + (c.price || 0), 0);
-    const totalViews = this.cars.reduce((sum, c) => sum + (c.views || 0), 0);
-    const totalInquiries = this.inquiries.length;
-    const occupiedBays = new Set(this.cars.map(c => c.bay)).size;
-
+    const totalValuation = this.cars.reduce((sum, car) => sum + (Number(car.price) || 0), 0);
+    const totalViews = this.cars.reduce((sum, car) => sum + (Number(car.views) || 0), 0);
+    const occupiedBays = new Set(this.cars.map(car => car.bay)).size;
     return {
       totalCars,
       totalValuation,
       totalViews,
-      totalInquiries,
+      totalInquiries: 0,
       occupiedBays,
-      totalBays: 30,
-      occupancyRate: ((occupiedBays / 30) * 100).toFixed(0) + '%',
-      avgCarPrice: Math.round(totalValuation / totalCars),
-      mostPopularCar: [...this.cars].sort((a, b) => (b.views || 0) - (a.views || 0))[0],
+      totalBays: SHOWROOM_BAYS.length,
+      occupancyRate: `${((occupiedBays / SHOWROOM_BAYS.length) * 100).toFixed(0)}%`,
+      avgCarPrice: totalCars ? Math.round(totalValuation / totalCars) : 0,
+      mostPopularCar: [...this.cars].sort((a, b) => (b.views || 0) - (a.views || 0))[0] || null,
     };
   }
 }
 
-export const inventory = new InventoryManager();
+// The backend imports the seed data without touching browser storage or creating a client.
+export const inventory = typeof window === 'undefined' ? null : new InventoryManager();

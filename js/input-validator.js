@@ -5,6 +5,8 @@
  * - 7.2 Form Entries Validation (Name, Phone +91, Email, 60-day Date window, Car ID, Message sanitization)
  */
 
+import { inventory } from './inventory-data.js';
+
 export class InputValidator {
   constructor() {
     // 7.1 Sensitivity & Speed Presets
@@ -81,7 +83,7 @@ export class InputValidator {
 
   handleKeyDown(e) {
     // If typing in a form or dialog, do not process 3D movement
-    if (this.isInputFocused) return;
+    if (this.isInputFocused || document.querySelector('dialog[open]')) return;
 
     // Never intercept standard browser shortcuts
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -217,7 +219,7 @@ export class InputValidator {
 
     // 1. Name: Required, 2-60 chars, letters, spaces, hyphens, apostrophes
     const name = (formData.name || '').trim();
-    const nameRegex = /^[a-zA-Z\s'\-]{2,60}$/;
+    const nameRegex = /^[\p{L}\p{M}\s'-]{2,60}$/u;
     if (!name) {
       errors.name = 'Please enter your name.';
     } else if (!nameRegex.test(name)) {
@@ -272,9 +274,8 @@ export class InputValidator {
       }
     }
 
-    // 5. Car selection: Must be an existing car ID
-    const validCarIds = ['apex', 'veloce', 'stratos'];
-    if (!formData.carId || !validCarIds.includes(formData.carId.toLowerCase())) {
+    // 5. Car selection must match the current server-backed showroom inventory
+    if (!formData.carId || !inventory.getCarById(formData.carId)) {
       errors.carId = 'Please select a car from the list.';
     }
 

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { inventory, SHOWROOM_BAYS } from './inventory-data.js';
 
 export const MODES = {
+  OVERVIEW: 'OVERVIEW',
   FREE_WALK: 'FREE_WALK',
   GUIDED_TOUR: 'GUIDED_TOUR',
   CAR_FOCUS: 'CAR_FOCUS',
@@ -22,7 +23,10 @@ export class MotionTracker {
     this.sound = soundEngine;
 
     // Current State
-    this.mode = MODES.FREE_WALK;
+    // Overview is idle until the visitor explicitly starts walking. Starting in
+    // FREE_WALK makes setMode(FREE_WALK) return early and leaves the landing UI
+    // out of sync with the movement state.
+    this.mode = null;
     this.previousMode = MODES.FREE_WALK;
 
     // Avatar Transform (Entrance Spawn, eye height 1.6m)
@@ -38,6 +42,7 @@ export class MotionTracker {
       position: this.position.clone(),
       yaw: this.yaw,
       pitch: this.pitch,
+      pointerLocked: false,
     };
 
     // Movement Constants
@@ -103,6 +108,8 @@ export class MotionTracker {
     this.tourWaitTimer = 0;
 
     this.isPointerLocked = false;
+    this.isMouseLookDragging = false;
+    this.lastMousePosition = { x: 0, y: 0 };
     this.currentCarIndex = 0;
 
     this.bindEvents();
@@ -110,30 +117,47 @@ export class MotionTracker {
   }
 
   bindEvents() {
-    this.domElement.addEventListener('click', () => {
-      if (this.mode === MODES.FREE_WALK && !this.isPointerLocked) {
-        this.requestPointerLock();
-      } else if (this.mode === MODES.PAUSED) {
-        this.resume();
-      }
+    document.addEventListener('pointerdown', event => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('button, a, input, select, textarea, label, dialog, .showroom-header, .mobile-actions-bar, .mobile-dpad, .joystick-zone')) return;
+      if (this.mode !== MODES.FREE_WALK || this.isPointerLocked || event.pointerType !== 'mouse' || event.button !== 0) return;
+      this.isMouseLookDragging = true;
+      this.lastMousePosition = { x: event.clientX, y: event.clientY };
+      this.domElement.classList.add('is-dragging');
+      event.preventDefault();
     });
+
+    const endMouseLook = () => {
+      this.isMouseLookDragging = false;
+      this.domElement.classList.remove('is-dragging');
+    };
+    window.addEventListener('pointerup', endMouseLook);
+    window.addEventListener('pointercancel', endMouseLook);
+    window.addEventListener('blur', endMouseLook);
 
     document.addEventListener('pointerlockchange', () => {
       this.isPointerLocked = (document.pointerLockElement === this.domElement);
+      if (this.isPointerLocked) endMouseLook();
       if (!this.isPointerLocked && this.mode === MODES.FREE_WALK) {
         this.pause();
       }
     });
 
-    document.addEventListener('mousemove', (e) => {
-      if (this.mode !== MODES.FREE_WALK || !this.isPointerLocked) return;
-
-      const { dx, dy } = this.input.validateMouseDelta(e.movementX, e.movementY);
-
-      this.yaw -= dx;
-      this.pitch -= dy;
-      this.pitch = Math.max(-this.MAX_PITCH, Math.min(this.MAX_PITCH, this.pitch));
-      this.yaw = (this.yaw + Math.PI * 2) % (Math.PI * 2);
+    document.addEventListener('pointermove', event => {
+      if (this.mode !== MODES.FREE_WALK) return;
+      let deltaX = 0;
+      let deltaY = 0;
+      if (this.isPointerLocked) {
+        deltaX = event.movementX;
+        deltaY = event.movementY;
+      } else if (this.isMouseLookDragging) {
+        deltaX = event.clientX - this.lastMousePosition.x;
+        deltaY = event.clientY - this.lastMousePosition.y;
+        this.lastMousePosition = { x: event.clientX, y: event.clientY };
+      } else {
+        return;
+      }
+      this.applyLookDelta(deltaX, deltaY);
     });
 
     this.input.onInteract = () => this.handleInteractKey();
@@ -148,10 +172,12 @@ export class MotionTracker {
     };
   }
 
-  requestPointerLock() {
-    try {
-      this.domElement.requestPointerLock();
-    } catch (e) {}
+  applyLookDelta(deltaX, deltaY) {
+    const { dx, dy } = this.input.validateMouseDelta(deltaX, deltaY);
+    this.yaw -= dx;
+    this.pitch -= dy;
+    this.pitch = Math.max(-this.MAX_PITCH, Math.min(this.MAX_PITCH, this.pitch));
+    this.yaw = (this.yaw + Math.PI * 2) % (Math.PI * 2);
   }
 
   exitPointerLock() {
@@ -162,6 +188,10 @@ export class MotionTracker {
 
   setMode(newMode) {
     if (this.mode === newMode) return;
+    if (newMode !== MODES.FREE_WALK) {
+      this.isMouseLookDragging = false;
+      this.domElement.classList.remove('is-dragging');
+    }
     this.previousMode = this.mode;
     this.mode = newMode;
 
@@ -173,7 +203,17 @@ export class MotionTracker {
     const exitFocusBtn = document.getElementById('btn-exit-focus');
     const tourHud = document.getElementById('tour-hud');
 
-    if (newMode === MODES.FREE_WALK) {
+    if (newMode === MODES.OVERVIEW) {
+      this.exitPointerLock();
+      document.body.classList.remove('in-walk-mode', 'in-car-focus', 'in-paused');
+      heroOverlay?.classList.remove('hidden');
+      walkReticle?.classList.add('hidden');
+      walkGuideHud?.classList.add('hidden');
+      configDock?.classList.remove('open');
+      pauseOverlay?.classList.add('hidden');
+      exitFocusBtn?.classList.add('hidden');
+      tourHud?.classList.add('hidden');
+    } else if (newMode === MODES.FREE_WALK) {
       document.body.classList.add('in-walk-mode');
       document.body.classList.remove('in-car-focus', 'in-paused');
       heroOverlay?.classList.add('hidden');
@@ -217,6 +257,7 @@ export class MotionTracker {
     const modeBadge = document.getElementById('current-mode-badge');
     if (modeBadge) {
       const labels = {
+        OVERVIEW: 'VIRTUAL SHOWROOM',
         FREE_WALK: 'FREE WALK',
         GUIDED_TOUR: 'GUIDED TOUR',
         CAR_FOCUS: 'CAR FOCUS',
@@ -235,9 +276,6 @@ export class MotionTracker {
   resume() {
     if (this.mode === MODES.PAUSED) {
       this.setMode(this.previousMode || MODES.FREE_WALK);
-      if (this.mode === MODES.FREE_WALK) {
-        this.requestPointerLock();
-      }
     }
   }
 
@@ -276,15 +314,26 @@ export class MotionTracker {
   }
 
   enterCarFocus(car) {
-    if (this.isDebounced()) return;
+    return this.focusCar(car);
+  }
+
+  focusCar(car) {
+    if (!car || this.isDebounced()) return false;
     this.lastActionTime = performance.now();
 
     this.sound.playClick(1500);
 
-    this.savedWalkState.position.copy(this.position);
-    this.savedWalkState.yaw = this.yaw;
-    this.savedWalkState.pitch = this.pitch;
+    if (this.mode !== MODES.CAR_FOCUS) {
+      this.savedWalkState.position.copy(this.position);
+      this.savedWalkState.yaw = this.yaw;
+      this.savedWalkState.pitch = this.pitch;
+      this.savedWalkState.pointerLocked = this.isPointerLocked;
+    }
 
+    const cars = inventory.getCars();
+    const carIndex = cars.findIndex(item => item.id === car.id);
+    if (carIndex >= 0) this.currentCarIndex = carIndex;
+    window.vehicles?.setActiveCar(car.id);
     this.setMode(MODES.CAR_FOCUS);
 
     const bay = SHOWROOM_BAYS.find(b => b.bay === car.bay) || { x: 0, z: 0 };
@@ -292,6 +341,7 @@ export class MotionTracker {
     const focusTarget = new THREE.Vector3(bay.x, 0.7, bay.z);
 
     this.startCameraGlide(focusPos, focusTarget, 1.0);
+    return true;
   }
 
   exitCarFocus() {
@@ -313,7 +363,6 @@ export class MotionTracker {
       this.yaw = this.savedWalkState.yaw;
       this.pitch = this.savedWalkState.pitch;
       this.setMode(MODES.FREE_WALK);
-      this.requestPointerLock();
     });
   }
 
@@ -322,8 +371,10 @@ export class MotionTracker {
     this.lastActionTime = performance.now();
 
     const cars = inventory.getCars();
+    if (!cars.length) return;
     this.currentCarIndex = (this.currentCarIndex + direction + cars.length) % cars.length;
     const targetCar = cars[this.currentCarIndex];
+    window.vehicles?.setActiveCar(targetCar.id);
 
     const bay = SHOWROOM_BAYS.find(b => b.bay === targetCar.bay) || { x: 0, z: 0 };
     const focusPos = new THREE.Vector3(bay.x + 2.8, 1.4, bay.z + 2.8);
@@ -362,7 +413,6 @@ export class MotionTracker {
     this.position.copy(this.camera.position);
     this.position.y = this.EYE_HEIGHT;
     this.setMode(MODES.FREE_WALK);
-    this.requestPointerLock();
   }
 
   startCameraGlide(endPos, endTarget, duration = 1.0, onComplete = null) {
@@ -426,6 +476,10 @@ export class MotionTracker {
     }
 
     if (this.mode === MODES.PAUSED) {
+      return;
+    }
+
+    if (this.mode === MODES.OVERVIEW) {
       return;
     }
 
